@@ -158,7 +158,6 @@ static void handleCommand(char *c) {
     int n = atoi(c + 5);
     for (int i = 0; i < n; i++) {
       buddyUpdate(simS, 1.0f / 30);
-      simS.jerk = 0;  // spikes last one frame
       if (simS.stillSec > 0) simS.stillSec += 1.0f / 30;
     }
     renderBuddyFrame();
@@ -172,6 +171,17 @@ static void handleCommand(char *c) {
     Serial.println("\nEND");
   } else if (!strncmp(c, "page ", 5)) { page = atoi(c + 5) % PAGE_COUNT; showPage(); Serial.println("ok"); }
   else if (!strcmp(c, "dbg")) Serial.println(buddyDebug());
+  else if (!strncmp(c, "calfrom ", 8)) {
+    float u1[3], u2[3];
+    sscanf(c + 8, "%f %f %f %f %f %f", &u1[0], &u1[1], &u1[2], &u2[0], &u2[1], &u2[2]);
+    bool ok = frameFromCalibration(u1, u2);
+    ImuSnap sn = imuTake();
+    Sensors se = sensorsFromImu(sn, 0);
+    Serial.printf("ok calfrom=%d X=(%.2f %.2f %.2f) Y=(%.2f %.2f %.2f) Z=(%.2f %.2f %.2f) now: gx=%.2f gy=%.2f gz=%.2f\n", ok,
+                  screenFrame.X[0], screenFrame.X[1], screenFrame.X[2], screenFrame.Y[0], screenFrame.Y[1], screenFrame.Y[2],
+                  screenFrame.Z[0], screenFrame.Z[1], screenFrame.Z[2], se.gx, se.gy, se.gz);
+  }
+  else if (!strcmp(c, "reset")) { buddyInit(); Serial.println("ok reset"); }
   else if (!strcmp(c, "stat")) {
     Serial.printf("heap=%u maxblk=%u psram=%u canvas=%d cal=%d muted=%d\n", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
                   ESP.getFreePsram(), canvasOk, screenFrame.valid, soundMuted());

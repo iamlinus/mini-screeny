@@ -64,6 +64,7 @@ float ceilT = 0, wallT = 0, floatT = 0;
 float lookX = 0, lookY = 0;
 float zzzIn = 0;
 float lastSpin = 0;
+float yawnLeft = 0;
 
 // ---------- particles ----------
 enum PType : uint8_t { P_DUST, P_STAR, P_ZZZ, P_SWEAT, P_HEART, P_SPARK };
@@ -160,6 +161,13 @@ Star stars[30];
 
 void buddyInit() {
   b = {W / 2, H - 60, 0, 0, 0, 0};
+  squash = squashV = 0; t = 0;
+  dizzy = fright = anger = joy = shake = 0; dizzyPeak = false;
+  asleep = yawned = false; faceDownT = 0; faceDown = false;
+  grounded = false; groundT = airT = 0; gnx = 0; gny = -1; gdx = 0; gdy = 1; gmag = 1;
+  sayLeft = 0; sayPrio = 0; chatIn = 6; wanderIn = 4; wanderGoal = -1; walkPhase = walkSpeed = 0;
+  waveLeft = screamLeft = tapPending = tapCooldown = 0;
+  cdOuch = cdSlide = cdCeil = cdWall = cdShake = cdFloat = 0; ceilT = wallT = floatT = 0;
   uint32_t seed = 12345;
   for (auto &s : stars) {
     seed = seed * 1103515245 + 12345; s.x = (seed >> 16) % 240;
@@ -209,8 +217,8 @@ void buddyUpdate(const Sensors &s, float dt) {
   if (spin > 80) dizzy += (spin - 80) / 600.0f * dt;
   float other = fmaxf(0, s.wmag - spin);
   if (other > 150) dizzy += (other - 150) / 1400.0f * dt;
-  if (spin < 60 && other < 120) dizzy -= 0.13f * dt;
-  dizzy = clampf(dizzy, 0, 1.6f);
+  if (spin < 60 && other < 120) dizzy -= 0.18f * dt;
+  dizzy = clampf(dizzy, 0, 1.2f);
   if (dizzy > 0.5f && !dizzyPeak) { dizzyPeak = true; say(pick(M_DIZZY), 2.5f, 2); sfx::dizzy(); wake(false); }
   if (dizzyPeak && dizzy < 0.3f) { dizzyPeak = false; say(pick(M_DIZZY_END), 2.5f, 1); }
 
@@ -219,7 +227,7 @@ void buddyUpdate(const Sensors &s, float dt) {
   shake = clampf(shake - 0.9f * dt, 0, 5);
   if (shake > 0.9f && cdShake <= 0) { say(pick(M_SHAKE), 1.8f, 2); cdShake = 4; fright = 1; sfx::bonk(0.8f); wake(false); }
   if (shake > 2.0f) anger += dt * 0.7f;
-  anger = clampf(anger - 0.18f * dt, 0, 1.5f);
+  anger = clampf(anger - (shake < 0.3f ? 0.32f : 0.12f) * dt, 0, 1.5f);
   static bool angryOn = false;
   if (anger > 0.9f && !angryOn) { angryOn = true; say(pick(M_ANGRY), 2.5f, 3); sfx::grumble(); }
   if (anger < 0.4f) angryOn = false;
@@ -233,7 +241,7 @@ void buddyUpdate(const Sensors &s, float dt) {
       tapCooldown = 0.6f;
       if (asleep) wake(true);
       else {
-        if (grounded) { b.vx -= gdx * 560; b.vy -= gdy * 560; }
+        if (airT < 0.4f) { b.vx -= gdx * 480; b.vy -= gdy * 480; b.om += frange(-3, 3); }
         say(pick(M_TAP), 1.6f, 2);
         sfx::boing();
         joy = fmaxf(joy, 0.7f);
@@ -250,7 +258,11 @@ void buddyUpdate(const Sensors &s, float dt) {
 
   // free fall
   if (s.freefallMs > 90) {
-    if (screamLeft <= 0) { say(pick(M_FALL), 1.8f, 3); sfx::scream(); wake(false); }
+    if (screamLeft <= 0) {
+      say(pick(M_FALL), 1.8f, 3); sfx::scream(); wake(false);
+      b.vx -= gdx * 160 + frange(-60, 60); b.vy -= gdy * 160;
+      b.om += frange(-4, 4);
+    }
     screamLeft = 0.8f;
   }
   screamLeft -= dt;
@@ -261,7 +273,7 @@ void buddyUpdate(const Sensors &s, float dt) {
 
   // sleep after a long still period (only while calm)
   bool calm = dizzy < 0.2f && shake < 0.2f && anger < 0.3f && screamLeft <= 0;
-  if (!asleep && calm && grounded && s.stillSec > 22 && !yawned) { yawned = true; say("*gäsp*", 2.5f, 1); sfx::yawn(); }
+  if (!asleep && calm && grounded && s.stillSec > 22 && !yawned) { yawned = true; say("*gäsp*", 2.5f, 1); sfx::yawn(); yawnLeft = 1.6f; }
   if (!asleep && calm && grounded && s.stillSec > 27) { asleep = true; sayLeft = 0; }
   if (asleep && (moving || s.jerk > 0.12f)) wake(true);
   if (!asleep && s.stillSec < 1) yawned = false;
@@ -323,10 +335,10 @@ void buddyUpdate(const Sensors &s, float dt) {
         if (pass == 0 && impact > 200) {
           squash = fminf(0.38f, squash + impact / 2400.0f);
           float cxp = bcx - w.nx * ex, cyp = bcy - w.ny * ey;
-          int n = impact > 600 ? 6 : 3;
+          int n = impact > 600 ? 4 : 2;
           for (int i = 0; i < n; i++)
             spawn(P_DUST, cxp + frange(-30, 30) * fabsf(w.ny), cyp + frange(-30, 30) * fabsf(w.nx),
-                  w.nx * frange(20, 70) + frange(-50, 50) * fabsf(w.ny), w.ny * frange(20, 70) + frange(-50, 50) * fabsf(w.nx), 0.5f);
+                  w.nx * frange(30, 80) + frange(-70, 70) * fabsf(w.ny), w.ny * frange(30, 80) + frange(-70, 70) * fabsf(w.nx), 0.32f);
           sfx::bonk(clampf(impact / 1400.0f, 0, 1));
           if (!grounded) b.om += frange(-1, 1) * impact * 0.004f;
           if (impact > 650) {
@@ -398,6 +410,7 @@ void buddyUpdate(const Sensors &s, float dt) {
   joy = fmaxf(0, joy - 0.35f * dt);
   sayLeft -= dt;
   waveLeft -= dt;
+  yawnLeft -= dt;
 
   // blinking
   blinkIn -= dt;
@@ -448,12 +461,15 @@ void buddyDraw(Arduino_GFX *g) {
   }
 
   // soft glow behind the buddy
-  g->fillCircle(lroundf(b.x), lroundf(b.y + 6), 70, rgb(g, 30, 21, 30));
-  g->fillCircle(lroundf(b.x), lroundf(b.y + 6), 52, rgb(g, 38, 25, 32));
+  g->fillCircle(lroundf(b.x), lroundf(b.y + 6), 74, rgb(g, 20, 16, 26));
+  g->fillCircle(lroundf(b.x), lroundf(b.y + 6), 62, rgb(g, 24, 18, 29));
+  g->fillCircle(lroundf(b.x), lroundf(b.y + 6), 50, rgb(g, 28, 20, 31));
 
   // ---- expression ----
   enum { E_NORMAL, E_BLINK, E_SLEEP, E_SCREAM, E_DIZZY, E_ANGRY, E_WIDE, E_HAPPY } ex = E_NORMAL;
+  bool yawning = yawnLeft > 0 && !asleep;
   if (asleep) ex = E_SLEEP;
+  else if (yawning) ex = E_BLINK;
   else if (screamLeft > 0) ex = E_SCREAM;
   else if (dizzy > 0.45f) ex = E_DIZZY;
   else if (anger > 0.8f) ex = E_ANGRY;
@@ -469,9 +485,9 @@ void buddyDraw(Arduino_GFX *g) {
   Xf xf{b.x, b.y, cosf(b.th + wob + jitter), sinf(b.th + wob + jitter), 1 + sq * 0.6f, 1 - sq};
 
   // colours
-  float ar = clampf(anger, 0, 1), dz = clampf(dizzy * 0.5f, 0, 0.35f);
+  float ar = clampf(anger, 0, 1), dz = clampf(dizzy * 0.25f, 0, 0.18f);
   float br = 217 + (232 - 217) * ar, bg = 119 + (70 - 119) * ar, bb = 87 + (58 - 87) * ar;
-  br += (150 - br) * dz; bg += (175 - bg) * dz; bb += (90 - bb) * dz;   // a bit green when dizzy
+  br += (165 - br) * dz; bg += (190 - bg) * dz; bb += (110 - bb) * dz;   // a bit green when dizzy
   if (asleep) { br *= 0.8f; bg *= 0.8f; bb *= 0.8f; }
   const uint16_t BODY = rgb(g, br, bg, bb);
   const uint16_t BODY_D = rgb(g, br * 0.8f, bg * 0.74f, bb * 0.7f);
@@ -573,6 +589,7 @@ void buddyDraw(Arduino_GFX *g) {
     }
     case E_ANGRY: rrect(g, xf, 0, 18, 16, 4, 2, 0, INK); break;
     case E_WIDE: circleL(g, xf, 0, 18, 4, INK); break;
+    case E_BLINK: if (yawning) { float o = sinf((1.6f - yawnLeft) / 1.6f * PI_F); rrect(g, xf, 0, 17, 10 + o * 4, 4 + o * 12, 6, 0, INK); } break;
     default: break;
   }
 
@@ -600,7 +617,7 @@ void buddyDraw(Arduino_GFX *g) {
     if (!p.on) continue;
     float f = p.life / p.max;
     switch (p.type) {
-      case P_DUST: g->fillCircle(lroundf(p.x), lroundf(p.y), lroundf(2 + (1 - f) * 5), rgb(g, 70 + 60 * f, 60 + 50 * f, 70 + 50 * f)); break;
+      case P_DUST: g->fillCircle(lroundf(p.x), lroundf(p.y), lroundf(1.5f + (1 - f) * 3), rgb(g, 16 + 150 * f, 13 + 135 * f, 22 + 130 * f)); break;
       case P_SPARK: sparkle(g, p.x, p.y, 3 + f * 5, GOLD); break;
       case P_SWEAT: g->fillCircle(lroundf(p.x), lroundf(p.y), 3, rgb(g, 120, 190, 255)); break;
       case P_HEART: heart(g, p.x, p.y, 4 + 2 * f, rgb(g, 255, 90 + 60 * (1 - f), 120)); break;

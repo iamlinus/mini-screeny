@@ -136,8 +136,8 @@ def sc_dark():
             ("later", dict(gy=0.6, gz=0.8), 30)]
 
 def sc_sleep():
-    return [("calm", dict(gy=1, still=1), 30), ("still 20s", dict(gy=1, still=1), 570), ("yawn", dict(gy=1, still=1), 60),
-            ("asleep", dict(gy=1, still=1), 90), ("asleep2", dict(gy=1, still=1), 30), ("wake", dict(gy=1, jerk=0.3, jx=0.2), 1),
+    return [("calm", dict(gy=1, still=1), 30), ("still 20s", dict(gy=1, still=1), 570), ("yawn", dict(gy=1, still=20), 90),
+            ("asleep", dict(gy=1, still=23), 150), ("asleep2", dict(gy=1, still=28), 40), ("wake", dict(gy=1, jerk=0.3, jx=0.2), 1),
             ("woken", dict(gy=1), 20)]
 
 def sc_flat():
@@ -155,7 +155,7 @@ def run_scenario(name):
     s = open_port()
     print(cmd(s, "sim 1"))
     paths, labels = [], []
-    # reset buddy state by stepping a calm period first
+    print(cmd(s, "reset"))
     sens(s, gy=1)
     step(s, 1)
     for i, (label, sd, frames) in enumerate(SCENARIOS[name]()):
