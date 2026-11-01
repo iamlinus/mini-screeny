@@ -1,0 +1,127 @@
+#include <Arduino.h>
+#include <Arduino_GFX_Library.h>
+
+// Waveshare ESP32-S3-LCD-1.69 (ST7789V2, 240x280, 4-wire SPI)
+#define LCD_DC  4
+#define LCD_CS  5
+#define LCD_CLK 6
+#define LCD_DIN 7
+#define LCD_RST 8
+#define LCD_BL  15
+
+Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_CLK, LCD_DIN, GFX_NOT_DEFINED);
+Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0, true, 240, 280, 0, 20, 0, 20);
+
+// ---- Data (hämtad en gång från Avanza, 2026-11-01, senaste stängning) ----
+static const char *NAME     = "KJELL GROUP";
+static const char *TICKER   = "KJELL  ·  Nasdaq First North";
+static const char *PRICE_I  = "19";      // heltal
+static const char *PRICE_D  = "00";      // decimaler
+static const float PRICE    = 19.00f;
+static const float DAY_LOW  = 19.00f;
+static const float DAY_HIGH = 19.30f;
+static const char *CHG_ABS  = "-0,50";
+static const char *CHG_PCT  = "-2,56%";
+static const char *VOLUME   = "75 763";
+static const char *MCAP     = "1 811 MSEK";
+static const bool  DOWN     = true;
+
+// ---- Palette ----
+#define C(r,g,b) gfx->color565(r,g,b)
+
+void centerText(const char *s, int cx, int y) {
+  int16_t x1, y1; uint16_t w, h;
+  gfx->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+  gfx->setCursor(cx - w / 2 - x1, y);
+  gfx->print(s);
+}
+
+void drawStock() {
+  const uint16_t BG    = C(8, 10, 16);
+  const uint16_t CARD  = C(22, 26, 38);
+  const uint16_t TEXT  = C(245, 247, 250);
+  const uint16_t MUTED = C(130, 140, 160);
+  const uint16_t TREND = DOWN ? C(255, 85, 95) : C(60, 220, 140);
+  const uint16_t TREND_BG = DOWN ? C(60, 18, 26) : C(14, 56, 40);
+
+  gfx->fillScreen(BG);
+
+  // Header
+  gfx->setFont(u8g2_font_helvB14_tf);
+  gfx->setTextColor(TEXT);
+  centerText(NAME, 120, 44);
+  gfx->setFont(u8g2_font_helvR08_tf);
+  gfx->setTextColor(MUTED);
+  centerText(TICKER, 120, 62);
+
+  // Big price
+  gfx->setFont(u8g2_font_logisoso50_tn);
+  gfx->setTextColor(TEXT);
+  int16_t x1, y1; uint16_t wi, hi, wd, hd;
+  gfx->getTextBounds(PRICE_I, 0, 0, &x1, &y1, &wi, &hi);
+  gfx->getTextBounds(PRICE_D, 0, 0, &x1, &y1, &wd, &hd);
+  const int dot = 14;                      // plats för kommatecknet
+  int total = wi + dot + wd;
+  int x0 = 120 - total / 2;
+  const int baseY = 128;
+  gfx->setCursor(x0, baseY);               gfx->print(PRICE_I);
+  gfx->fillCircle(x0 + wi + dot / 2, baseY - 4, 3, TEXT);  // komma/punkt
+  gfx->setCursor(x0 + wi + dot, baseY);    gfx->print(PRICE_D);
+
+  gfx->setFont(u8g2_font_helvR10_tf);
+  gfx->setTextColor(MUTED);
+  centerText("SEK", 120, 150);
+
+  // Change pill
+  const int pw = 150, ph = 30, px = 120 - pw / 2, py = 160;
+  gfx->fillRoundRect(px, py, pw, ph, 15, TREND_BG);
+  // triangle
+  int tx = px + 20, ty = py + ph / 2;
+  if (DOWN) gfx->fillTriangle(tx - 6, ty - 5, tx + 6, ty - 5, tx, ty + 6, TREND);
+  else      gfx->fillTriangle(tx - 6, ty + 5, tx + 6, ty + 5, tx, ty - 6, TREND);
+  gfx->setFont(u8g2_font_helvB12_tf);
+  gfx->setTextColor(TREND);
+  gfx->setCursor(px + 34, py + 21);
+  gfx->print(CHG_PCT);
+  gfx->setFont(u8g2_font_helvR10_tf);
+  gfx->setCursor(px + 96, py + 20);
+  gfx->print(CHG_ABS);
+
+  // Day range bar
+  const int bx = 34, bw = 172, by = 214;
+  gfx->setFont(u8g2_font_helvR08_tf);
+  gfx->setTextColor(MUTED);
+  gfx->setCursor(bx, by - 8);        gfx->print("Lägst 19,00");
+  int16_t a; uint16_t w2, h2;
+  gfx->getTextBounds("Högst 19,30", 0, 0, &a, &a, &w2, &h2);
+  gfx->setCursor(bx + bw - w2, by - 8); gfx->print("Högst 19,30");
+  gfx->fillRoundRect(bx, by, bw, 6, 3, CARD);
+  float t = (DAY_HIGH > DAY_LOW) ? (PRICE - DAY_LOW) / (DAY_HIGH - DAY_LOW) : 0.5f;
+  int mx = bx + (int)(t * bw);
+  gfx->fillRoundRect(bx, by, max(6, mx - bx), 6, 3, TREND);
+  gfx->fillCircle(mx, by + 3, 7, TEXT);
+  gfx->fillCircle(mx, by + 3, 3, TREND);
+
+  // Footer stats
+  gfx->setFont(u8g2_font_helvR08_tf);
+  gfx->setTextColor(MUTED);
+  gfx->setCursor(34, 252);   gfx->print("VOLYM");
+  gfx->getTextBounds("MARKNADSVÄRDE", 0, 0, &a, &a, &w2, &h2);
+  gfx->setCursor(206 - w2, 252); gfx->print("MARKNADSVÄRDE");
+  gfx->setFont(u8g2_font_helvB10_tf);
+  gfx->setTextColor(TEXT);
+  gfx->setCursor(34, 268);   gfx->print(VOLUME);
+  gfx->getTextBounds(MCAP, 0, 0, &a, &a, &w2, &h2);
+  gfx->setCursor(206 - w2, 268); gfx->print(MCAP);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LCD_BL, OUTPUT);
+  digitalWrite(LCD_BL, HIGH);
+  if (!gfx->begin()) Serial.println("gfx->begin() failed");
+  gfx->setUTF8Print(true);   // åäö
+  drawStock();
+}
+
+void loop() { delay(1000); }
