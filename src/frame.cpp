@@ -32,7 +32,7 @@ bool frameFromCalibration(const float u1[3], const float u2[3]) {
   // upright portrait: up = -Y  =>  Y = -u2, made orthogonal to Z
   float Y[3] = {-u2[0], -u2[1], -u2[2]}; norm(Y);
   float d = dot(Y, Z);
-  if (fabsf(d) > 0.6f) return false;   // second pose was not upright enough
+  if (fabsf(d) > 0.8f) return false;   // second pose was not upright enough (~53 deg back-tilt allowed)
   for (int i = 0; i < 3; i++) Y[i] -= d * Z[i];
   norm(Y);
   float X[3]; cross(Y, Z, X);          // right-handed: X = Y x Z

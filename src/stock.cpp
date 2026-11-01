@@ -84,7 +84,7 @@ void stockBegin() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  xTaskCreatePinnedToCore(netTask, "net", 8192, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(netTask, "net", 16384, nullptr, 1, nullptr, 0);
 }
 
 bool stockConsumeDirty() { bool d = dirty; dirty = false; return d; }

@@ -43,12 +43,44 @@ static int calStep = -1;          // -1 = not calibrating, 0 = flat, 1 = upright
 static float calU1[3];
 static uint32_t calMsgUntil = 0, calDoneAt = 0;
 static const char *calMsg = nullptr;
+static bool calCapturing = false;
+static uint32_t calCapStart = 0;
+static float calSum[3]; static int calN = 0;
+static float calLastUp[3] = {0, 0, 1};
 
 static void calStart() { calStep = 0; calMsg = nullptr; }
 
+// A press starts a short averaging window. It never rejects forever: after a timeout it uses what it has.
 static void calConfirm() {
-  ImuSnap s = imuTake();
-  if (s.stillSec < 0.25f) { calMsg = "Håll mig stilla..."; calMsgUntil = millis() + 1500; return; }
+  if (calCapturing) return;
+  calCapturing = true; calCapStart = millis();
+  calSum[0] = calSum[1] = calSum[2] = 0; calN = 0;
+  sfx::click();
+}
+
+static void calSample(const ImuSnap &s) {
+  memcpy(calLastUp, s.up, sizeof calLastUp);
+  if (!calCapturing) return;
+  uint32_t el = millis() - calCapStart;
+  if (el < 150) return;                       // let the button-press jolt settle
+  float am = sqrtf(s.acc[0] * s.acc[0] + s.acc[1] * s.acc[1] + s.acc[2] * s.acc[2]);
+  if (fabsf(am - 1.0f) < 0.15f) { for (int i = 0; i < 3; i++) calSum[i] += s.acc[i]; calN++; }
+}
+
+static void calFinish();
+
+static void calTick() {
+  if (!calCapturing) return;
+  uint32_t el = millis() - calCapStart;
+  if ((el > 750 && calN >= 8) || el > 2500) calFinish();
+}
+
+static void calFinish() {
+  calCapturing = false;
+  ImuSnap s;
+  if (calN > 0) for (int i = 0; i < 3; i++) s.up[i] = calSum[i] / calN;
+  else memcpy(s.up, calLastUp, sizeof s.up);
+  Serial.printf("cal step %d: n=%d up=(%.2f %.2f %.2f)\n", calStep, calN, s.up[0], s.up[1], s.up[2]);
   if (calStep == 0) {
     memcpy(calU1, s.up, sizeof calU1);
     calStep = 1; calMsg = nullptr;
@@ -108,7 +140,11 @@ static void calDraw(Arduino_GFX *g) {
   centerOn(g, "...och tryck BOOT", 222);
   g->setFont(u8g2_font_helvR08_tf);
   centerOn(g, "(eller PWR)", 240);
-  if (calMsg && ms < calMsgUntil) {
+  if (calCapturing) {
+    g->fillRoundRect(24, 104, 192, 26, 12, g->color565(140, 220, 160));
+    g->setFont(u8g2_font_helvB10_tf); g->setTextColor(C_INK);
+    centerOn(g, "Håll still...", 122);
+  } else if (calMsg && ms < calMsgUntil) {
     g->fillRoundRect(24, 104, 192, 26, 12, g->color565(255, 214, 120));
     g->setFont(u8g2_font_helvB10_tf); g->setTextColor(C_INK);
     centerOn(g, calMsg, 122);
@@ -181,6 +217,10 @@ static void handleCommand(char *c) {
                   screenFrame.X[0], screenFrame.X[1], screenFrame.X[2], screenFrame.Y[0], screenFrame.Y[1], screenFrame.Y[2],
                   screenFrame.Z[0], screenFrame.Z[1], screenFrame.Z[2], se.gx, se.gy, se.gz);
   }
+  else if (!strcmp(c, "calpress")) { if (calStep == 0 || calStep == 1) { calConfirm(); Serial.printf("ok calpress step=%d\n", calStep); } else Serial.println("err not calibrating"); }
+  else if (!strcmp(c, "calstep")) Serial.printf("ok calstep=%d capturing=%d\n", calStep, calCapturing);
+  else if (!strcmp(c, "calsave")) { frameSave(); Serial.println("ok saved"); }
+  else if (!strcmp(c, "reboot")) { Serial.println("ok reboot"); Serial.flush(); delay(100); ESP.restart(); }
   else if (!strcmp(c, "reset")) { buddyInit(); Serial.println("ok reset"); }
   else if (!strcmp(c, "stat")) {
     Serial.printf("heap=%u maxblk=%u psram=%u canvas=%d cal=%d muted=%d\n", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
@@ -255,6 +295,8 @@ void loop() {
     float dt = (now - last) / 1000.0f;
     last = now;
     ImuSnap snap = imuTake();
+    calSample(snap);
+    calTick();
     if (calStep < 0) {
       Sensors s = sensorsFromImu(snap, dt);
       buddyUpdate(s, dt);
