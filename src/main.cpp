@@ -1,259 +1,264 @@
-#include <Arduino.h>
-#include <Arduino_GFX_Library.h>
-
-// Waveshare ESP32-S3-LCD-1.69 (ST7789V2, 240x280, 4-wire SPI)
-#define LCD_DC  4
-#define LCD_CS  5
-#define LCD_CLK 6
-#define LCD_DIN 7
-#define LCD_RST 8
-#define LCD_BL  15
-
-Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_CLK, LCD_DIN, GFX_NOT_DEFINED);
-Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0, true, 240, 280, 0, 20, 0, 20);
-
-// ---- Data (uppdateras live via Wi-Fi, startvärden = stängning 2026-11-01) ----
-static const char *NAME   = "KJELL GROUP";
-static const char *TICKER = "KJELL  ·  Nasdaq First North";
-char  PRICE_I[8] = "19", PRICE_D[4] = "00";
-char  CHG_ABS[12] = "-0,50", CHG_PCT[12] = "-2,56%";
-char  VOLUME[16] = "75 763", MCAP[24] = "19,00 / 19,20";
-char  LOWS[20] = "Lägst 19,00", HIGHS[20] = "Högst 19,30";
-float PRICE = 19.00f, DAY_LOW = 19.00f, DAY_HIGH = 19.30f;
-bool  DOWN = true;
-bool  LIVE = false;
-
-// ---- Palette ----
-#define C(r,g,b) gfx->color565(r,g,b)
-
-void centerText(const char *s, int cx, int y) {
-  int16_t x1, y1; uint16_t w, h;
-  gfx->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
-  gfx->setCursor(cx - w / 2 - x1, y);
-  gfx->print(s);
-}
-
-void drawStock() {
-  const uint16_t BG    = C(8, 10, 16);
-  const uint16_t CARD  = C(22, 26, 38);
-  const uint16_t TEXT  = C(245, 247, 250);
-  const uint16_t MUTED = C(130, 140, 160);
-  const uint16_t TREND = DOWN ? C(255, 85, 95) : C(60, 220, 140);
-  const uint16_t TREND_BG = DOWN ? C(60, 18, 26) : C(14, 56, 40);
-
-  gfx->fillScreen(BG);
-
-  // Header
-  gfx->setFont(u8g2_font_helvB14_tf);
-  gfx->setTextColor(TEXT);
-  centerText(NAME, 120, 44);
-  gfx->setFont(u8g2_font_helvR08_tf);
-  gfx->setTextColor(MUTED);
-  centerText(TICKER, 120, 62);
-
-  gfx->fillCircle(206, 40, 4, LIVE ? C(60, 220, 140) : C(90, 96, 110));
-
-  // Big price
-  gfx->setFont(u8g2_font_logisoso50_tn);
-  gfx->setTextColor(TEXT);
-  int16_t x1, y1; uint16_t wi, hi, wd, hd;
-  gfx->getTextBounds(PRICE_I, 0, 0, &x1, &y1, &wi, &hi);
-  gfx->getTextBounds(PRICE_D, 0, 0, &x1, &y1, &wd, &hd);
-  const int dot = 14;                      // plats för kommatecknet
-  int total = wi + dot + wd;
-  int x0 = 120 - total / 2;
-  const int baseY = 128;
-  gfx->setCursor(x0, baseY);               gfx->print(PRICE_I);
-  gfx->fillCircle(x0 + wi + dot / 2, baseY - 4, 3, TEXT);  // komma/punkt
-  gfx->setCursor(x0 + wi + dot, baseY);    gfx->print(PRICE_D);
-
-  gfx->setFont(u8g2_font_helvR10_tf);
-  gfx->setTextColor(MUTED);
-  centerText("SEK", 120, 150);
-
-  // Change pill
-  const int pw = 150, ph = 30, px = 120 - pw / 2, py = 160;
-  gfx->fillRoundRect(px, py, pw, ph, 15, TREND_BG);
-  // triangle
-  int tx = px + 20, ty = py + ph / 2;
-  if (DOWN) gfx->fillTriangle(tx - 6, ty - 5, tx + 6, ty - 5, tx, ty + 6, TREND);
-  else      gfx->fillTriangle(tx - 6, ty + 5, tx + 6, ty + 5, tx, ty - 6, TREND);
-  gfx->setFont(u8g2_font_helvB12_tf);
-  gfx->setTextColor(TREND);
-  gfx->setCursor(px + 34, py + 21);
-  gfx->print(CHG_PCT);
-  gfx->setFont(u8g2_font_helvR10_tf);
-  gfx->setCursor(px + 96, py + 20);
-  gfx->print(CHG_ABS);
-
-  // Day range bar
-  const int bx = 34, bw = 172, by = 214;
-  gfx->setFont(u8g2_font_helvR08_tf);
-  gfx->setTextColor(MUTED);
-  gfx->setCursor(bx, by - 8);        gfx->print(LOWS);
-  int16_t a; uint16_t w2, h2;
-  gfx->getTextBounds(HIGHS, 0, 0, &a, &a, &w2, &h2);
-  gfx->setCursor(bx + bw - w2, by - 8); gfx->print(HIGHS);
-  gfx->fillRoundRect(bx, by, bw, 6, 3, CARD);
-  float t = (DAY_HIGH > DAY_LOW) ? (PRICE - DAY_LOW) / (DAY_HIGH - DAY_LOW) : 0.5f;
-  int mx = bx + (int)(t * bw);
-  gfx->fillRoundRect(bx, by, max(6, mx - bx), 6, 3, TREND);
-  gfx->fillCircle(mx, by + 3, 7, TEXT);
-  gfx->fillCircle(mx, by + 3, 3, TREND);
-
-  // Footer stats
-  gfx->setFont(u8g2_font_helvR08_tf);
-  gfx->setTextColor(MUTED);
-  gfx->setCursor(34, 252);   gfx->print("VOLYM");
-  gfx->getTextBounds("KÖP / SÄLJ", 0, 0, &a, &a, &w2, &h2);
-  gfx->setCursor(206 - w2, 252); gfx->print("KÖP / SÄLJ");
-  gfx->setFont(u8g2_font_helvB10_tf);
-  gfx->setTextColor(TEXT);
-  gfx->setCursor(34, 268);   gfx->print(VOLUME);
-  gfx->getTextBounds(MCAP, 0, 0, &a, &a, &w2, &h2);
-  gfx->setCursor(206 - w2, 268); gfx->print(MCAP);
-}
+// mini screeny – Waveshare ESP32-S3-LCD-1.69
+// Pages (PWR): Claude buddy -> Kjell stock -> photo.  BOOT on buddy page: short = mute, long = recalibrate.
+#include "board.h"
+#include "imu.h"
+#include "frame.h"
+#include "buddy.h"
+#include "sound.h"
+#include "stock.h"
 
 #if __has_include("photo.h")
 #include "photo.h"
 #endif
 
-#include "claude_anim.h"
-Arduino_Canvas *canvas = new Arduino_Canvas(240, 280, gfx);
+Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_CLK, LCD_DIN, GFX_NOT_DEFINED);
+Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0, true, SCREEN_W, SCREEN_H, 0, 20, 0, 20);
+Arduino_Canvas *canvas = new Arduino_Canvas(SCREEN_W, SCREEN_H, gfx);
 
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
-#include <ArduinoJson.h>
-#include "secrets.h"
+void backlight(uint8_t level) { ledcWrite(LEDC_BL, level); }
 
-static void fmt2(float v, char *out, size_t n, bool sign = false) {
-  snprintf(out, n, sign ? "%+.2f" : "%.2f", v);
-  for (char *c = out; *c; c++) if (*c == '.') *c = ',';
-}
-static void fmtThousands(long v, char *out, size_t n) {
-  char t[16]; snprintf(t, sizeof t, "%ld", v);
-  int len = strlen(t), o = 0;
-  for (int i = 0; i < len && o < (int)n - 2; i++) {
-    if (i && (len - i) % 3 == 0) out[o++] = ' ';
-    out[o++] = t[i];
+enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PHOTO, PAGE_COUNT };
+static int page = PAGE_BUDDY;
+static bool canvasOk = false;
+
+// ---------------- buttons ----------------
+struct Button {
+  int pin, idle;
+  bool down = false, longFired = false;
+  uint32_t t0 = 0;
+  // returns 1 = short press (on release), 2 = long press (while held)
+  int poll() {
+    bool d = digitalRead(pin) != idle;
+    uint32_t now = millis();
+    if (d && !down) { down = true; longFired = false; t0 = now; }
+    else if (d && down && !longFired && now - t0 > 1200) { longFired = true; return 2; }
+    else if (!d && down) { down = false; if (!longFired && now - t0 > 25) return 1; }
+    return 0;
   }
-  out[o] = 0;
+};
+static Button pwrBtn, bootBtn;
+
+// ---------------- calibration UI ----------------
+static int calStep = -1;          // -1 = not calibrating, 0 = flat, 1 = upright, 2 = done screen
+static float calU1[3];
+static uint32_t calMsgUntil = 0, calDoneAt = 0;
+static const char *calMsg = nullptr;
+
+static void calStart() { calStep = 0; calMsg = nullptr; }
+
+static void calConfirm() {
+  ImuSnap s = imuTake();
+  if (s.stillSec < 0.25f) { calMsg = "Håll mig stilla..."; calMsgUntil = millis() + 1500; return; }
+  if (calStep == 0) {
+    memcpy(calU1, s.up, sizeof calU1);
+    calStep = 1; calMsg = nullptr;
+    sfx::click();
+  } else if (calStep == 1) {
+    if (frameFromCalibration(calU1, s.up)) {
+      frameSave();
+      calStep = 2; calDoneAt = millis();
+      sfx::tada();
+      Serial.printf("cal X=(%.2f %.2f %.2f) Y=(%.2f %.2f %.2f) Z=(%.2f %.2f %.2f)\n",
+                    screenFrame.X[0], screenFrame.X[1], screenFrame.X[2], screenFrame.Y[0], screenFrame.Y[1],
+                    screenFrame.Y[2], screenFrame.Z[0], screenFrame.Z[1], screenFrame.Z[2]);
+    } else {
+      calMsg = "Inte upprätt nog - igen!"; calMsgUntil = millis() + 2000;
+    }
+  }
 }
 
-bool fetchQuote() {
-  WiFiClientSecure cl; cl.setInsecure();
-  HTTPClient http;
-  http.setTimeout(6000);
-  if (!http.begin(cl, "https://www.avanza.se/_api/market-guide/stock/1276742/quote")) return false;
-  http.addHeader("User-Agent", "Mozilla/5.0");
-  int code = http.GET();
-  if (code != 200) { Serial.printf("HTTP %d\n", code); http.end(); return false; }
-  JsonDocument d;
-  DeserializationError e = deserializeJson(d, http.getString());
-  http.end();
-  if (e || !d["last"].is<float>()) { Serial.println("json fail"); return false; }
-  PRICE = d["last"]; DAY_HIGH = d["highest"]; DAY_LOW = d["lowest"];
-  float chg = d["change"], pct = d["changePercent"];
-  DOWN = chg < 0;
-  char buf[16]; fmt2(PRICE, buf, sizeof buf);
-  char *comma = strchr(buf, ',');
-  if (comma) { *comma = 0; strlcpy(PRICE_I, buf, sizeof PRICE_I); strlcpy(PRICE_D, comma + 1, sizeof PRICE_D); }
-  fmt2(chg, CHG_ABS, sizeof CHG_ABS, true);
-  char pb[12]; fmt2(pct, pb, sizeof pb, true); snprintf(CHG_PCT, sizeof CHG_PCT, "%s%%", pb);
-  fmtThousands((long)(float)d["totalVolumeTraded"], VOLUME, sizeof VOLUME);
-  char lo[12], hi[12], b[12], se[12];
-  fmt2(DAY_LOW, lo, sizeof lo); fmt2(DAY_HIGH, hi, sizeof hi);
-  snprintf(LOWS, sizeof LOWS, "Lägst %s", lo); snprintf(HIGHS, sizeof HIGHS, "Högst %s", hi);
-  fmt2(d["buy"], b, sizeof b); fmt2(d["sell"], se, sizeof se);
-  snprintf(MCAP, sizeof MCAP, "%s / %s", b, se);
-  LIVE = true;
-  Serial.printf("quote %.2f (%s)\n", PRICE, CHG_PCT);
-  return true;
+static void centerOn(Arduino_GFX *g, const char *s, int y) {
+  int16_t x1, y1; uint16_t w, h;
+  g->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+  g->setCursor(SCREEN_W / 2 - w / 2 - x1, y);
+  g->print(s);
 }
 
-#define PWR_PIN 40
-#define BUZZER_PIN 42
+static void calDraw(Arduino_GFX *g) {
+  const uint16_t C_BG = g->color565(16, 13, 22), C_TEXT = g->color565(245, 240, 235), C_MUTED = g->color565(150, 140, 160);
+  const uint16_t C_ORANGE = g->color565(217, 119, 87), C_INK = g->color565(32, 20, 18);
+  g->fillScreen(C_BG);
+  uint32_t ms = millis();
+  if (calStep == 2) {
+    g->setFont(u8g2_font_helvB14_tf); g->setTextColor(C_TEXT);
+    centerOn(g, "Tack!", 120);
+    g->setFont(u8g2_font_helvR10_tf); g->setTextColor(C_MUTED);
+    centerOn(g, "Nu vet jag vad som är upp.", 148);
+    g->fillRoundRect(96, 170, 48, 34, 9, C_ORANGE);
+    g->fillRect(108, 180, 6, 10, C_INK); g->fillRect(126, 180, 6, 10, C_INK);
+    return;
+  }
+  g->setFont(u8g2_font_helvR08_tf); g->setTextColor(C_MUTED);
+  centerOn(g, calStep == 0 ? "KALIBRERING  1 / 2" : "KALIBRERING  2 / 2", 46);
+  g->setFont(u8g2_font_helvB12_tf); g->setTextColor(C_TEXT);
+  if (calStep == 0) { centerOn(g, "Lägg mig platt", 76); centerOn(g, "på bordet", 96); }
+  else { centerOn(g, "Håll mig upprätt", 76); centerOn(g, "framför dig", 96); }
 
-void beep(int freq, int ms) { tone(BUZZER_PIN, freq, ms); delay(ms); noTone(BUZZER_PIN); }
-void startupChime() { beep(1319, 70); beep(1760, 110); }   // E6 -> A6
-void click() { beep(2400, 18); }
-int page = 0;
-int idleLevel;
+  // illustration
+  if (calStep == 0) {
+    g->fillRoundRect(40, 168, 160, 6, 3, C_MUTED);                 // table
+    g->fillRoundRect(70, 152, 100, 14, 5, C_ORANGE);               // board lying flat
+  } else {
+    float bob = sinf(ms / 300.0f) * 3;
+    g->fillRoundRect(95, 122 + bob, 50, 64, 10, C_ORANGE);         // board standing
+    g->fillRect(108, 140 + bob, 6, 12, C_INK); g->fillRect(126, 140 + bob, 6, 12, C_INK);
+  }
 
-void drawPhoto() {
+  g->setFont(u8g2_font_helvR10_tf); g->setTextColor(C_MUTED);
+  centerOn(g, "...och tryck BOOT", 222);
+  g->setFont(u8g2_font_helvR08_tf);
+  centerOn(g, "(eller PWR)", 240);
+  if (calMsg && ms < calMsgUntil) {
+    g->fillRoundRect(24, 104, 192, 26, 12, g->color565(255, 214, 120));
+    g->setFont(u8g2_font_helvB10_tf); g->setTextColor(C_INK);
+    centerOn(g, calMsg, 122);
+  }
+}
+
+// ---------------- photo page ----------------
+static void drawPhoto() {
 #ifdef HAS_PHOTO
-  gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)PHOTO, 240, 280);
+  gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)PHOTO, SCREEN_W, SCREEN_H);
 #else
   gfx->fillScreen(gfx->color565(8, 10, 16));
-  gfx->setFont(u8g2_font_helvB14_tf);
-  gfx->setTextColor(WHITE);
+  gfx->setFont(u8g2_font_helvB14_tf); gfx->setTextColor(WHITE);
   gfx->setCursor(40, 130); gfx->print("Foto saknas");
-  gfx->setFont(u8g2_font_helvR10_tf);
-  gfx->setTextColor(gfx->color565(130, 140, 160));
-  gfx->setCursor(30, 156); gfx->print("kör tools/make_photo.py");
 #endif
 }
 
-void drawPage() { if (page == 0) drawStock(); else if (page == 1) drawPhoto(); }
+static void showPage() {
+  backlight(255);
+  if (page == PAGE_STOCK) drawStock();
+  else if (page == PAGE_PHOTO) drawPhoto();
+}
 
+// ---------------- serial test interface ----------------
+// Commands (one per line):
+//   sim 1|0                         take over the buddy with injected sensors (deterministic 30 fps steps)
+//   sens gx gy gz wz wmag jerk jx jy ff still
+//   step N                          advance N frames
+//   dump                            raw RGB565 framebuffer: "FBDUMP 240 280\n" + 134400 bytes
+//   page N | dbg | stat | calreset | calguess
+static bool simMode = false;
+static Sensors simS = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
+static char line[160]; static uint8_t lineLen = 0;
+
+static void renderBuddyFrame() {
+  if (calStep >= 0) calDraw(canvas); else buddyDraw(canvas);
+  canvas->flush();
+}
+
+static void handleCommand(char *c) {
+  if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
+  else if (!strncmp(c, "sens ", 5)) {
+    Sensors &s = simS;
+    int n = sscanf(c + 5, "%f %f %f %f %f %f %f %f %f %f", &s.gx, &s.gy, &s.gz, &s.wz, &s.wmag, &s.jerk, &s.jx, &s.jy, &s.freefallMs, &s.stillSec);
+    Serial.printf("ok sens n=%d\n", n);
+  } else if (!strncmp(c, "step ", 5)) {
+    int n = atoi(c + 5);
+    for (int i = 0; i < n; i++) {
+      buddyUpdate(simS, 1.0f / 30);
+      simS.jerk = 0;  // spikes last one frame
+      if (simS.stillSec > 0) simS.stillSec += 1.0f / 30;
+    }
+    renderBuddyFrame();
+    static uint32_t nStep = 0;
+    Serial.printf("ok step #%u %s\n", ++nStep, buddyDebug());
+  } else if (!strcmp(c, "dump")) {
+    if (!canvasOk) { Serial.println("err no canvas"); return; }
+    Serial.printf("FBDUMP %d %d\n", SCREEN_W, SCREEN_H);
+    Serial.write((uint8_t *)canvas->getFramebuffer(), SCREEN_W * SCREEN_H * 2);
+    Serial.flush();
+    Serial.println("\nEND");
+  } else if (!strncmp(c, "page ", 5)) { page = atoi(c + 5) % PAGE_COUNT; showPage(); Serial.println("ok"); }
+  else if (!strcmp(c, "dbg")) Serial.println(buddyDebug());
+  else if (!strcmp(c, "stat")) {
+    Serial.printf("heap=%u maxblk=%u psram=%u canvas=%d cal=%d muted=%d\n", ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+                  ESP.getFreePsram(), canvasOk, screenFrame.valid, soundMuted());
+  } else if (!strcmp(c, "calreset")) { frameClear(); calStart(); Serial.println("ok"); }
+  else if (!strcmp(c, "calguess")) {
+    // identity mapping, only for testing without a human
+    const float X[3] = {1, 0, 0}, Y[3] = {0, 1, 0}, Z[3] = {0, 0, 1};
+    frameSetDirect(X, Y, Z); calStep = -1; Serial.println("ok (not saved)");
+  } else if (!strcmp(c, "imu")) {
+    ImuSnap s = imuTake();
+    Serial.printf("up=(%.2f %.2f %.2f) gyro=(%.1f %.1f %.1f) still=%.1f\n", s.up[0], s.up[1], s.up[2], s.gyro[0], s.gyro[1], s.gyro[2], s.stillSec);
+  } else Serial.printf("err unknown '%s'\n", c);
+}
+
+static void pollSerial() {
+  while (Serial.available()) {
+    char ch = Serial.read();
+    if (ch == '\n' || ch == '\r') { if (lineLen) { line[lineLen] = 0; handleCommand(line); Serial.flush(); lineLen = 0; } }
+    else if (lineLen < sizeof line - 1) line[lineLen++] = ch;
+  }
+}
+
+// ---------------- setup / loop ----------------
 void setup() {
+  Serial.setTxBufferSize(4096);
   Serial.begin(115200);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
   pinMode(PWR_PIN, INPUT_PULLUP);
-  delay(50);
-  idleLevel = digitalRead(PWR_PIN);
-  pinMode(LCD_BL, OUTPUT);
-  digitalWrite(LCD_BL, HIGH);
+  pinMode(BOOT_PIN, INPUT_PULLUP);
+  delay(30);
+  pwrBtn.pin = PWR_PIN; pwrBtn.idle = digitalRead(PWR_PIN);
+  bootBtn.pin = BOOT_PIN; bootBtn.idle = HIGH;
+
+  ledcSetup(LEDC_BL, 5000, 8);
+  ledcAttachPin(LCD_BL, LEDC_BL);
+  backlight(255);
   if (!gfx->begin()) Serial.println("gfx->begin() failed");
-  gfx->setUTF8Print(true);   // åäö
-  canvas->begin(GFX_SKIP_OUTPUT_BEGIN);
+  gfx->setUTF8Print(true);
+  gfx->fillScreen(BLACK);
+  canvasOk = canvas->begin(GFX_SKIP_OUTPUT_BEGIN);
   canvas->setUTF8Print(true);
-  drawPage();
-  startupChime();
+  Serial.printf("canvas=%d heap=%u maxblk=%u\n", canvasOk, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+  soundInit();
+  imuBegin();
+  if (!frameLoad()) calStart();
+  buddyInit();
+  stockBegin();
+  showPage();
 }
 
 void loop() {
-  static uint32_t lastPress = 0;
-  if (digitalRead(PWR_PIN) != idleLevel && millis() - lastPress > 300) {
-    lastPress = millis();
-    page = (page + 1) % 3;
-    click();
-    drawPage();
-    while (digitalRead(PWR_PIN) != idleLevel) delay(10);   // vänta på släpp
-  }
-  static uint32_t nextFetch = 0, nextLog = 0;
-  if (millis() > nextLog) {
-    nextLog = millis() + 5000;
-    Serial.printf("wifi status=%d ip=%s rssi=%d live=%d\n", WiFi.status(),
-                  WiFi.localIP().toString().c_str(), WiFi.RSSI(), LIVE);
-    static uint32_t nextScan = 0;
-    if (WiFi.status() == WL_NO_SSID_AVAIL && millis() > nextScan) {
-      nextScan = millis() + 30000;
-      WiFi.disconnect();
-      delay(200);
-      int n = WiFi.scanNetworks();
-      Serial.printf("scan: %d nät\n", n);
-      for (int i = 0; i < n; i++) {
-        String ss = WiFi.SSID(i);
-        Serial.printf("  [%s] ch%d %ddBm hex:", ss.c_str(), WiFi.channel(i), WiFi.RSSI(i));
-        for (size_t k = 0; k < ss.length(); k++) Serial.printf("%02X", (uint8_t)ss[k]);
-        Serial.println();
-      }
-      WiFi.scanDelete();
-      WiFi.begin(WIFI_SSID, WIFI_PASS);
-    }
-  }
-  if (page != 2 && WiFi.status() == WL_CONNECTED && millis() > nextFetch) {
-    bool ok = fetchQuote();
-    nextFetch = millis() + (ok ? 60000 : 10000);
-    if (ok && page == 0) drawPage();
-  } else if (WiFi.status() != WL_CONNECTED && LIVE) { LIVE = false; if (page == 0) drawPage(); }
-  if (page == 2) {
-    drawClaude(canvas, millis());
-    canvas->flush();
+  soundUpdate();
+  pollSerial();
+
+  int p = pwrBtn.poll(), bt = bootBtn.poll();
+  if (calStep == 0 || calStep == 1) {
+    if (p == 1 || bt == 1) calConfirm();
   } else {
-    delay(10);
+    if (p == 1) { page = (page + 1) % PAGE_COUNT; sfx::click(); showPage(); }
+    if (page == PAGE_BUDDY && bt == 1) buddyBootShort();
+    if (page == PAGE_BUDDY && bt == 2) { calStart(); sfx::click(); }
+  }
+  if (calStep == 2 && millis() - calDoneAt > 1800) { calStep = -1; buddySay("Nu kör vi!", 2, 3); }
+
+  if (page == PAGE_STOCK && stockConsumeDirty()) drawStock();
+
+  if (page == PAGE_BUDDY && canvasOk && !simMode) {
+    static uint32_t last = millis();
+    uint32_t now = millis();
+    float dt = (now - last) / 1000.0f;
+    last = now;
+    ImuSnap snap = imuTake();
+    if (calStep < 0) {
+      Sensors s = sensorsFromImu(snap, dt);
+      buddyUpdate(s, dt);
+      backlight(buddyAsleep() ? 40 : 255);
+    }
+    renderBuddyFrame();
+
+    static uint32_t frames = 0, nextLog = 0;
+    frames++;
+    if (now > nextLog) {
+      Serial.printf("fps=%.1f heap=%u %s\n", frames / 5.0f, ESP.getFreeHeap(), buddyDebug());
+      frames = 0; nextLog = now + 5000;
+    }
+  } else {
+    delay(5);
   }
 }
