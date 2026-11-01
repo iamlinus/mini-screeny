@@ -24,4 +24,5 @@ void knock();
 void wiii();
 void yawn();
 void tada();
+void dance();
 }

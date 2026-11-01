@@ -39,6 +39,9 @@ const char *const M_DARK[] = {"Det var mörkt där!", "Hej igen!", "Vem släckte
 const char *const M_CEIL[] = {"Allt är upp och ner!", "Jag står i taket!", "Vem vände på världen?"};
 const char *const M_WALL[] = {"Nu står jag på väggen!", "Sidledes är också ett håll", "Konstig vinkel..."};
 const char *const M_WAKE[] = {"Va?! Jag var vaken!", "Jag vilade bara ögonen", "Mm... god morgon"};
+const char *const M_DANCE[] = {"Dansdags!", "Disco!", "Kolla mina moves!"};
+const char *const M_ROCK[] = {"Wiii, gunga!", "Mysigt!", "Mer gunga!", "Som en båt"};
+const char *const M_BLOOD[] = {"Blodet rusar till huvudet!", "Jag blir röd i ansiktet...", "Vänd tillbaka mig!"};
 const char *const M_FLOAT[] = {"Jag svävar!", "Viktlös!", "Flyter runt..."};
 
 // ---------- state ----------
@@ -65,9 +68,13 @@ float lookX = 0, lookY = 0;
 float zzzIn = 0;
 float lastSpin = 0;
 float yawnLeft = 0;
+float lastTapAt = -10, danceLeft = 0, beatPhase = 0;
+float blush = 0; bool bloodSaid = false;
+// rocking detector
+float rockPhi = 0, rockExt = 0, rockExtT = 0; int rockDir = 0, rockSwings = 0; float rockLastSwing = -10, cdRock = 0;
 
 // ---------- particles ----------
-enum PType : uint8_t { P_DUST, P_STAR, P_ZZZ, P_SWEAT, P_HEART, P_SPARK };
+enum PType : uint8_t { P_DUST, P_STAR, P_ZZZ, P_SWEAT, P_HEART, P_SPARK, P_NOTE };
 struct Part { float x, y, vx, vy, life, max; PType type; bool on; };
 Part parts[48];
 
@@ -168,6 +175,8 @@ void buddyInit() {
   sayLeft = 0; sayPrio = 0; chatIn = 6; wanderIn = 4; wanderGoal = -1; walkPhase = walkSpeed = 0;
   waveLeft = screamLeft = tapPending = tapCooldown = 0;
   cdOuch = cdSlide = cdCeil = cdWall = cdShake = cdFloat = 0; ceilT = wallT = floatT = 0;
+  yawnLeft = 0; lastTapAt = -10; danceLeft = 0; blush = 0; bloodSaid = false;
+  rockSwings = 0; rockDir = 0; cdRock = 0;
   uint32_t seed = 12345;
   for (auto &s : stars) {
     seed = seed * 1103515245 + 12345; s.x = (seed >> 16) % 240;
@@ -238,14 +247,21 @@ void buddyUpdate(const Sensors &s, float dt) {
     tapPending -= dt;
     if (s.jerk > 0.45f) tapPending = -1;   // more spikes: that's shaking, not a tap
     else if (tapPending <= 0) {
-      tapCooldown = 0.6f;
+      tapCooldown = 0.08f;
+      bool dbl = t - lastTapAt < 0.9f;
+      lastTapAt = t;
       if (asleep) wake(true);
-      else {
+      else if (dbl && danceLeft <= 0) {
+        danceLeft = 4.6f; beatPhase = 0;
+        say(pick(M_DANCE), 2.0f, 3);
+        sfx::dance();
+        lastTapAt = -10;
+      } else {
         if (airT < 0.4f) { b.vx -= gdx * 480; b.vy -= gdy * 480; b.om += frange(-3, 3); }
         say(pick(M_TAP), 1.6f, 2);
         sfx::boing();
         joy = fmaxf(joy, 0.7f);
-        for (int i = 0; i < 4; i++) spawn(P_HEART, b.x + frange(-30, 30), b.y - 40, frange(-40, 40), -70, 1.0f);
+        for (int i = 0; i < 4; i++) spawn(P_HEART, b.x - gdx * 62 + frange(-30, 30), b.y - gdy * 62, -gdx * 70 + frange(-40, 40), -gdy * 70, 1.0f);
       }
     }
   } else if (s.jerk > 0.7f && shake < 0.5f && tapCooldown <= 0) {
@@ -278,11 +294,50 @@ void buddyUpdate(const Sensors &s, float dt) {
   if (asleep && (moving || s.jerk > 0.12f)) wake(true);
   if (!asleep && s.stillSec < 1) yawned = false;
 
+  // gentle rocking (side-to-side tilt without spikes) makes the buddy happy
+  if (pm > 0.5f && s.jerk < 0.35f && spin < 150) {
+    float phi = atan2f(s.gx, s.gy);
+    rockPhi += (phi - rockPhi) * fminf(1, dt * 10);
+    int dir = 0;
+    if (rockPhi > rockExt + 0.06f) dir = 1; else if (rockPhi < rockExt - 0.06f) dir = -1;
+    if (dir != 0) {
+      if (dir != rockDir && rockDir != 0) {
+        float period = t - rockExtT;
+        if (period > 0.25f && period < 1.6f) { rockSwings++; rockLastSwing = t; } else rockSwings = 0;
+        rockExtT = t;
+      }
+      rockDir = dir; rockExt = rockPhi;
+    }
+    if (t - rockLastSwing > 2.0f) rockSwings = 0;
+    if (rockSwings >= 4 && cdRock <= 0 && danceLeft <= 0) {
+      say(pick(M_ROCK), 2.2f, 1); sfx::wiii(); joy = 1.0f; cdRock = 7; rockSwings = 0;
+      for (int i = 0; i < 5; i++) spawn(P_HEART, b.x - gdx * 62 + frange(-36, 36), b.y - gdy * 62, -gdx * 60 + frange(-30, 30), -gdy * 60, 1.2f);
+    }
+  }
+  cdRock -= dt;
+
+  // hanging upside down for a while: blood to the head
+  if (ceilT > 5.0f) { blush = fminf(1, blush + dt * 0.5f); if (!bloodSaid) { bloodSaid = true; say(pick(M_BLOOD), 2.6f, 2); } }
+  else { blush = fmaxf(0, blush - dt * 0.6f); if (ceilT <= 0) bloodSaid = false; }
+
+  // dancing: hop on the beat, notes fly
+  if (danceLeft > 0) {
+    danceLeft -= dt;
+    float prev = beatPhase;
+    beatPhase += dt * 2.6f;
+    if ((int)beatPhase != (int)prev) {
+      if (grounded) { b.vx -= gdx * 260; b.vy -= gdy * 260; }
+      squash = 0.2f;
+      spawn(P_NOTE, b.x - gdx * 60 + frange(-40, 40), b.y - gdy * 60, -gdx * 90 + frange(-40, 40), -gdy * 90, 1.3f);
+    }
+    joy = 1.0f;
+  }
+
   // ---- physics ----
   float ax = gex * GPX, ay = gey * GPX;
   // walking: a little self-propulsion along the floor when calm
   walkSpeed = 0;
-  if (grounded && calm && !asleep && sayLeft <= 0.5f) {
+  if (grounded && calm && !asleep && sayLeft <= 0.5f && danceLeft <= 0) {
     wanderIn -= dt;
     if (wanderIn <= 0 && wanderGoal < 0) {
       wanderGoal = frange(0.2f, 0.8f);
@@ -433,14 +488,14 @@ void buddyUpdate(const Sensors &s, float dt) {
       case P_DUST:  p.vx *= 1 - 3 * dt; p.vy *= 1 - 3 * dt; break;
       case P_SWEAT: p.vx += gex * 900 * dt; p.vy += gey * 900 * dt + 0; break;
       case P_ZZZ:   p.vx = -gdx * 22 + sinf(t * 3 + p.max) * 12; p.vy = -gdy * 22; break;
-      case P_HEART: p.vy -= 20 * dt; break;
+      case P_HEART: p.vx -= gdx * 20 * dt; p.vy -= gdy * 20 * dt; break;
       default: break;
     }
     p.x += p.vx * dt; p.y += p.vy * dt;
   }
   if (asleep) {
     zzzIn -= dt;
-    if (zzzIn <= 0) { zzzIn = 1.3f; spawn(P_ZZZ, b.x + 30, b.y - 50, 0, 0, 2.6f); }
+    if (zzzIn <= 0) { zzzIn = 1.3f; spawn(P_ZZZ, b.x - gdx * 55 + 24, b.y - gdy * 55, 0, 0, 2.6f); }
   }
 }
 
@@ -488,6 +543,8 @@ void buddyDraw(Arduino_GFX *g) {
   float ar = clampf(anger, 0, 1), dz = clampf(dizzy * 0.25f, 0, 0.18f);
   float br = 217 + (232 - 217) * ar, bg = 119 + (70 - 119) * ar, bb = 87 + (58 - 87) * ar;
   br += (165 - br) * dz; bg += (190 - bg) * dz; bb += (110 - bb) * dz;   // a bit green when dizzy
+  float bl = blush * 0.6f;
+  br += (240 - br) * bl; bg += (80 - bg) * bl; bb += (85 - bb) * bl;
   if (asleep) { br *= 0.8f; bg *= 0.8f; bb *= 0.8f; }
   const uint16_t BODY = rgb(g, br, bg, bb);
   const uint16_t BODY_D = rgb(g, br * 0.8f, bg * 0.74f, bb * 0.7f);
@@ -511,6 +568,7 @@ void buddyDraw(Arduino_GFX *g) {
   for (int side = -1; side <= 1; side += 2) {
     float el;   // elevation, 0 = straight out, + = up
     if (asleep) el = -0.6f;
+    else if (danceLeft > 0) el = (((int)beatPhase + (side > 0)) % 2) ? 1.2f : -0.5f;
     else if (screamLeft > 0) el = 1.25f + sinf(t * 28 + side) * 0.35f;
     else if (!grounded && airT > 0.15f) el = 0.9f + sinf(t * 22 + side * 1.3f) * 0.5f;
     else if (anger > 0.8f) el = -0.7f + sinf(t * 40) * 0.08f;
@@ -621,6 +679,14 @@ void buddyDraw(Arduino_GFX *g) {
       case P_SPARK: sparkle(g, p.x, p.y, 3 + f * 5, GOLD); break;
       case P_SWEAT: g->fillCircle(lroundf(p.x), lroundf(p.y), 3, rgb(g, 120, 190, 255)); break;
       case P_HEART: heart(g, p.x, p.y, 4 + 2 * f, rgb(g, 255, 90 + 60 * (1 - f), 120)); break;
+      case P_NOTE: {
+        uint16_t nc = rgb(g, 140 + 100 * f, 220, 255);
+        int X = lroundf(p.x), Y = lroundf(p.y);
+        g->fillCircle(X, Y, 4, nc);
+        g->fillRect(X + 3, Y - 12, 2, 12, nc);
+        g->fillRect(X + 3, Y - 12, 6, 2, nc);
+        break;
+      }
       case P_ZZZ: {
         g->setFont(f > 0.5f ? u8g2_font_helvB12_tf : u8g2_font_helvB10_tf);
         g->setTextColor(rgb(g, 140 + 100 * f, 150 + 90 * f, 220));

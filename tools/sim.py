@@ -144,6 +144,23 @@ def sc_flat():
     return [("flat", dict(gx=0, gy=0, gz=1), 40), ("flat tilt L", dict(gx=-0.3, gy=0, gz=0.95), 30),
             ("flat tilt R", dict(gx=0.3, gy=0, gz=0.95), 40), ("flat tilt fwd", dict(gx=0, gy=-0.3, gz=0.95), 40)]
 
+def sc_dance():
+    return [("calm", dict(gy=1), 30), ("tap1", dict(gy=1, jerk=1.2, jy=0.2), 1), ("gap", dict(gy=1), 9),
+            ("tap2", dict(gy=1, jerk=1.2, jy=0.2), 1), ("d+0.3s", dict(gy=1), 9), ("d+1s", dict(gy=1), 20),
+            ("d+2s", dict(gy=1), 30), ("d+3s", dict(gy=1), 30), ("after", dict(gy=1), 60)]
+
+def sc_rock():
+    seq = [("calm", dict(gy=1), 30)]
+    for i in range(12):
+        a = math.radians(25 * (1 if i % 2 else -1))
+        seq.append((f"rock {i}", dict(gx=-math.sin(a), gy=math.cos(a)), 12))
+    seq.append(("after", dict(gy=1), 30))
+    return seq
+
+def sc_blood():
+    return [("calm", dict(gy=1), 30), ("flip", dict(gy=-1), 45), ("hang 3s", dict(gy=-1), 90), ("hang 6s", dict(gy=-1), 90),
+            ("hang 8s", dict(gy=-1), 60), ("back", dict(gy=1), 45), ("later", dict(gy=1), 60)]
+
 def sc_idle():
     return [(f"idle {i}", dict(gy=1), 60) for i in range(8)]
 
