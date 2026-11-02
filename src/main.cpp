@@ -232,7 +232,9 @@ static void handleCommand(char *c) {
     frameSetDirect(X, Y, Z); calStep = -1; Serial.println("ok (not saved)");
   } else if (!strcmp(c, "imu")) {
     ImuSnap s = imuTake();
-    Serial.printf("up=(%.2f %.2f %.2f) gyro=(%.1f %.1f %.1f) still=%.1f\n", s.up[0], s.up[1], s.up[2], s.gyro[0], s.gyro[1], s.gyro[2], s.stillSec);
+    Sensors se = sensorsFromImu(s, 0);
+    Serial.printf("up=(%.2f %.2f %.2f) gyro=(%.1f %.1f %.1f) still=%.1f screen: gx=%.2f gy=%.2f gz=%.2f X=(%.2f %.2f %.2f)\n", s.up[0], s.up[1], s.up[2],
+                  s.gyro[0], s.gyro[1], s.gyro[2], s.stillSec, se.gx, se.gy, se.gz, screenFrame.X[0], screenFrame.X[1], screenFrame.X[2]);
   } else Serial.printf("err unknown '%s'\n", c);
 }
 

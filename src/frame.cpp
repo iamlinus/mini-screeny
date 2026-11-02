@@ -14,6 +14,7 @@ bool frameLoad() {
   Preferences p; p.begin("buddy", true);
   bool ok = p.getBool("cal", false) && p.getBytes("frame", &screenFrame, sizeof screenFrame) == sizeof screenFrame;
   p.end();
+  if (ok) cross(screenFrame.Z, screenFrame.Y, screenFrame.X);   // re-derive X (fixes frames saved with the old handedness bug)
   screenFrame.valid = ok;
   return ok;
 }
@@ -35,7 +36,8 @@ bool frameFromCalibration(const float u1[3], const float u2[3]) {
   if (fabsf(d) > 0.8f) return false;   // second pose was not upright enough (~53 deg back-tilt allowed)
   for (int i = 0; i < 3; i++) Y[i] -= d * Z[i];
   norm(Y);
-  float X[3]; cross(Y, Z, X);          // right-handed: X = Y x Z
+  // Y points down and Z toward the viewer, so (X, Y, Z) is left-handed: X = Z x Y (not Y x Z)
+  float X[3]; cross(Z, Y, X);
   frameSetDirect(X, Y, Z);
   return true;
 }

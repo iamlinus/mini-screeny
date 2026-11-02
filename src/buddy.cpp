@@ -425,7 +425,7 @@ void buddyUpdate(const Sensors &s, float dt) {
   if (grounded) b.om += (diff * 95 - b.om * 15) * dt;
   else {
     b.om += (diff * 6 - b.om * 0.9f) * dt;
-    b.th -= s.wz * (PI_F / 180) * dt;     // the screen spins under a floating buddy
+    b.th += s.wz * (PI_F / 180) * dt;     // screen turns CCW under a floating buddy -> it turns CW relative to the screen
   }
   if (gmag < 0.15f) b.om *= (1 - 0.5f * dt);     // weightless: keep tumbling slowly
   b.th = wrapPi(b.th + b.om * dt);

@@ -21,7 +21,7 @@ void frameSetDirect(const float X[3], const float Y[3], const float Z[3]);
 struct Sensors {
   float gx, gy;      // gravity in the screen plane (g); (0,1) = screen held upright
   float gz;          // up·Z: +1 screen faces the sky, -1 screen faces the floor
-  float wz;          // spin around the screen normal (deg/s, + = counter-clockwise for the viewer)
+  float wz;          // spin around the screen normal toward the viewer (deg/s, + = counter-clockwise as seen by the viewer)
   float wmag;        // total rotation speed (deg/s)
   float jerk;        // largest acceleration spike this frame (g)
   float jx, jy;      // spike direction in the screen plane (g)
