@@ -68,6 +68,7 @@ float lookX = 0, lookY = 0;
 float zzzIn = 0;
 float lastSpin = 0;
 float yawnLeft = 0;
+float bubbleTh = 0;
 float lastTapAt = -10, danceLeft = 0, beatPhase = 0;
 float blush = 0; bool bloodSaid = false;
 // rocking detector
@@ -175,7 +176,7 @@ void buddyInit() {
   sayLeft = 0; sayPrio = 0; chatIn = 6; wanderIn = 4; wanderGoal = -1; walkPhase = walkSpeed = 0;
   waveLeft = screamLeft = tapPending = tapCooldown = 0;
   cdOuch = cdSlide = cdCeil = cdWall = cdShake = cdFloat = 0; ceilT = wallT = floatT = 0;
-  yawnLeft = 0; lastTapAt = -10; danceLeft = 0; blush = 0; bloodSaid = false;
+  yawnLeft = 0; bubbleTh = 0; lastTapAt = -10; danceLeft = 0; blush = 0; bloodSaid = false;
   rockSwings = 0; rockDir = 0; cdRock = 0;
   uint32_t seed = 12345;
   for (auto &s : stars) {
@@ -429,6 +430,7 @@ void buddyUpdate(const Sensors &s, float dt) {
   }
   if (gmag < 0.15f) b.om *= (1 - 0.5f * dt);     // weightless: keep tumbling slowly
   b.th = wrapPi(b.th + b.om * dt);
+  bubbleTh = wrapPi(bubbleTh + wrapPi(b.th - bubbleTh) * fminf(1, dt * 7));
 
   // squash spring
   squashV += (-squash * 260 - squashV * 16) * dt;
@@ -500,6 +502,77 @@ void buddyUpdate(const Sensors &s, float dt) {
 }
 
 // =====================================================================
+
+// ---------- rotated speech bubble ----------
+namespace {
+const int BCW = 230, BCH = 44, PH = 30, TAIL = 10;
+const uint16_t KEY = 0xF81F;                 // transparent colour in the bubble buffer
+Arduino_Canvas *bc = nullptr;
+}
+
+static void drawBubble(Arduino_GFX *g, uint16_t ink, uint16_t paper) {
+  if (!bc) {
+    bc = new Arduino_Canvas(BCW, BCH, nullptr);
+    if (!bc->begin(GFX_SKIP_OUTPUT_BEGIN)) { delete bc; bc = nullptr; return; }
+    bc->setUTF8Print(true);
+  }
+  uint16_t *dst = canvas->getFramebuffer(), *src = bc->getFramebuffer();
+  if (!dst || !src || g != canvas) return;
+
+  bc->setFont(u8g2_font_helvB10_tf);
+  int16_t x1, y1; uint16_t tw, th;
+  bc->getTextBounds(sayBuf, 0, 0, &x1, &y1, &tw, &th);
+  int pw = min((int)tw + 24, BCW - 2);
+
+  // angle: follow the buddy, snap to exact quarter turns so text stays crisp
+  float ang = bubbleTh;
+  float q = roundf(ang / (PI_F / 2)) * (PI_F / 2);
+  bool snapped = fabsf(ang - q) < 0.12f;
+  if (snapped) ang = q;
+  float c = cosf(ang), s = sinf(ang);
+  if (snapped) { c = roundf(c); s = roundf(s); }
+
+  // placement: on the head side if it fits, otherwise on the feet side
+  float ux = sinf(b.th), uy = -cosf(b.th);              // buddy's "up" in screen coords
+  float ex = fabsf(c) * pw / 2 + fabsf(s) * BCH / 2, ey = fabsf(s) * pw / 2 + fabsf(c) * BCH / 2;
+  bool headSide = true;
+  float cx = 0, cy = 0;
+  for (int attempt = 0; attempt < 2; attempt++) {
+    float sign = attempt == 0 ? 1 : -1;
+    float px = b.x + ux * 82 * sign, py = b.y + uy * 82 * sign;
+    float qx = clampf(px, ex + 4, W - ex - 4), qy = clampf(py, ey + 4, H - ey - 4);
+    float along = (qx - b.x) * ux + (qy - b.y) * uy;     // must stay clear of the body
+    cx = qx; cy = qy; headSide = attempt == 0;
+    if (along * sign > 62) break;
+  }
+
+  // draw the bubble upright in its own buffer; tail points at the buddy
+  bc->fillScreen(KEY);
+  int bx = (BCW - pw) / 2, by = headSide ? 0 : TAIL;
+  bc->fillRoundRect(bx, by, pw, PH, 13, paper);
+  int tx = BCW / 2;
+  if (headSide) bc->fillTriangle(tx - 7, PH - 1, tx + 7, PH - 1, tx, PH + TAIL - 1, paper);
+  else bc->fillTriangle(tx - 7, TAIL + 1, tx + 7, TAIL + 1, tx, 0, paper);
+  bc->setTextColor(ink);
+  bc->setCursor(BCW / 2 - tw / 2 - x1, by + 20);
+  bc->print(sayBuf);
+
+  // rotate-blit (nearest neighbour), skipping the key colour
+  const float c0x = BCW / 2.0f, c0y = BCH / 2.0f;
+  int x0 = max(0, (int)floorf(cx - ex - 1)), x1b = min((int)W - 1, (int)ceilf(cx + ex + 1));
+  int y0 = max(0, (int)floorf(cy - ey - 1)), y1b = min((int)H - 1, (int)ceilf(cy + ey + 1));
+  for (int y = y0; y <= y1b; y++) {
+    float dy = y + 0.5f - cy;
+    for (int x = x0; x <= x1b; x++) {
+      float dx = x + 0.5f - cx;
+      int sx = (int)floorf(c0x + dx * c + dy * s);
+      int sy = (int)floorf(c0y - dx * s + dy * c);
+      if (sx < 0 || sy < 0 || sx >= BCW || sy >= BCH) continue;
+      uint16_t v = src[sy * BCW + sx];
+      if (v != KEY) dst[y * (int)W + x] = v;
+    }
+  }
+}
 
 void buddyDraw(Arduino_GFX *g) {
   const uint16_t BG = rgb(g, 16, 13, 22);
@@ -698,25 +771,8 @@ void buddyDraw(Arduino_GFX *g) {
     }
   }
 
-  // ---- speech bubble (always upright to the screen) ----
-  if (sayLeft > 0 && sayBuf[0]) {
-    g->setFont(u8g2_font_helvB10_tf);
-    int16_t x1, y1; uint16_t w, h;
-    g->getTextBounds(sayBuf, 0, 0, &x1, &y1, &w, &h);
-    int pw = w + 24, ph = 30;
-    float topY = b.y - 64 - ph - 8;     // prefer above
-    bool above = topY > 10;
-    int by = above ? (int)topY : (int)fminf(b.y + 62, H - ph - 10);
-    int bx = (int)clampf(b.x - pw / 2.0f, 12, W - pw - 12);
-    if (!above && by < b.y + 40) by = 10;   // no room anywhere near: park at the top
-    uint16_t bubble = WHITE_;
-    g->fillRoundRect(bx, by, pw, ph, 13, bubble);
-    int tx = (int)clampf(b.x, bx + 16, bx + pw - 16);
-    if (above) g->fillTriangle(tx - 7, by + ph - 1, tx + 7, by + ph - 1, tx, by + ph + 9, bubble);
-    else if (by > b.y) g->fillTriangle(tx - 7, by + 1, tx + 7, by + 1, tx, by - 9, bubble);
-    g->setTextColor(INK);
-    centerText(g, sayBuf, bx + pw / 2, by + 20);
-  }
+  // ---- speech bubble: rendered off-screen, then rotated to follow the buddy ----
+  if (sayLeft > 0 && sayBuf[0]) drawBubble(g, INK, WHITE_);
 
   // mute marker
   if (soundMuted()) {
