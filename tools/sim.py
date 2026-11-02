@@ -27,7 +27,7 @@ def cmd(s, c, wait_ok=True, timeout=6.0):
     t = time.time()
     while time.time() - t < timeout:
         ln = s.readline().decode(errors="replace").strip()
-        if ln.startswith("ok") or ln.startswith("err") or ln.startswith("heap=") or ln.startswith("pos=") or ln.startswith("up="):
+        if ln.startswith(("ok", "err", "heap=", "pos=", "up=", "type=")):
             return ln
     return "(timeout)"
 
@@ -161,6 +161,28 @@ def sc_blood():
     return [("calm", dict(gy=1), 30), ("flip", dict(gy=-1), 45), ("hang 3s", dict(gy=-1), 90), ("hang 6s", dict(gy=-1), 90),
             ("hang 8s", dict(gy=-1), 60), ("back", dict(gy=1), 45), ("later", dict(gy=1), 60)]
 
+def sc_shots():
+    seq = [("@page 1", None, 0), ("upright", dict(gy=1), 30)]
+    for deg in (30, 70, 110):
+        a = math.radians(deg)
+        seq.append((f"tilt {deg}", dict(gx=-math.sin(a), gy=math.cos(a)), 15))
+    a = math.radians(160)
+    seq += [("pour", dict(gx=-math.sin(a), gy=math.cos(a)), 6), ("pour 2", dict(gx=-math.sin(a), gy=math.cos(a)), 10),
+            ("pour 3", dict(gx=-math.sin(a), gy=math.cos(a)), 20), ("upright", dict(gy=1), 12), ("refill", dict(gy=1), 40),
+            ("full", dict(gy=1), 30), ("slosh", dict(gy=1, jerk=1.5, jx=1.5), 1), ("slosh+5", dict(gy=1), 5)]
+    return seq
+
+def sc_types():
+    seq = [("@page 1", None, 0)]
+    for i in range(7):
+        seq += [("@next", None, 0), (f"type {i+1}", dict(gx=-0.26, gy=0.96), 55)]
+    return seq
+
+def sc_chili():
+    a = math.radians(170)
+    return [("@page 1", None, 0), ("full", dict(gy=1), 10), ("drink", dict(gx=-math.sin(a), gy=math.cos(a)), 30),
+            ("drink2", dict(gx=-math.sin(a), gy=math.cos(a)), 30), ("hot", dict(gy=1), 10), ("hot2", dict(gy=1), 30), ("after", dict(gy=1), 60)]
+
 def sc_idle():
     return [(f"idle {i}", dict(gy=1), 60) for i in range(8)]
 
@@ -176,6 +198,9 @@ def run_scenario(name):
     sens(s, gy=1)
     step(s, 1)
     for i, (label, sd, frames) in enumerate(SCENARIOS[name]()):
+        if label.startswith("@"):
+            print(label, cmd(s, label[1:]))
+            continue
         sens(s, **sd)
         r = step(s, frames)
         p = os.path.join(OUT, f"{name}_{i:02d}.png")

@@ -74,5 +74,22 @@ void dance() {
                            {784, 784, 120}, {0, 0, 30}, {1047, 1568, 260}};
   soundPlay(s, 17);
 }
+void burp() {
+  static const Note s[] = {{0, 0, 250}, {150, 120, 70}, {120, 135, 50}, {135, 100, 80}, {100, 115, 50}, {115, 80, 140}};
+  soundPlay(s, 6);
+}
+void glug() {
+  static const Note s[] = {{260, 180, 80}, {0, 0, 90}, {280, 190, 80}, {0, 0, 90}, {300, 200, 80}, {0, 0, 90}, {320, 220, 90}};
+  soundPlay(s, 7);
+}
+void sizzle() {
+  Note s[24];
+  for (int i = 0; i < 24; i++) {
+    uint16_t f = 2600 + (esp_random() % 2400);
+    s[i] = {f, (uint16_t)(f - 400), (uint16_t)(i % 3 == 2 ? 15 : 35)};
+    if (i % 3 == 2) s[i].f0 = 0;
+  }
+  soundPlay(s, 24);
+}
 void tada()   { static const Note s[] = {{1047, 1047, 90}, {1319, 1319, 90}, {1568, 1568, 90}, {2093, 2093, 220}}; soundPlay(s, 4); }
 }

@@ -4,8 +4,9 @@ Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduin
 
 ## Sidor (PWR byter sida)
 1. **Claude-gubben**: en interaktiv figur som styrs av rörelsesensorn
-2. **Kjell Group-aktien**: hämtas live från Avanza via Wi-Fi varje minut (grön prick = live)
-3. **Foto**: `photos/pojkar.png`, konverteras med `tools/make_photo.py`
+2. **iShots**: ett snapsglas där vätskan ligger vågrätt mot verkligheten. Luta för att dricka och ställ upp kortet för påfyllning. BOOT byter sort: Chili & ingefära (HETT!), Tequila, Jäger, Salmiak, B-52, Blå lagun, Hallon
+3. **Kjell Group-aktien**: hämtas live från Avanza via Wi-Fi varje minut (grön prick = live)
+4. **Foto**: `photos/pojkar.png`, konverteras med `tools/make_photo.py`
 
 ## Första start: kalibrering
 Kortet behöver veta hur sensorn sitter i förhållande till skärmen. Du gör det en gång, och det sparas sedan i flashminnet.

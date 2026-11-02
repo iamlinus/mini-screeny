@@ -6,6 +6,7 @@
 #include "buddy.h"
 #include "sound.h"
 #include "stock.h"
+#include "shots.h"
 
 #if __has_include("photo.h")
 #include "photo.h"
@@ -17,7 +18,7 @@ Arduino_Canvas *canvas = new Arduino_Canvas(SCREEN_W, SCREEN_H, gfx);
 
 void backlight(uint8_t level) { ledcWrite(LEDC_BL, level); }
 
-enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PHOTO, PAGE_COUNT };
+enum Page { PAGE_BUDDY, PAGE_SHOTS, PAGE_STOCK, PAGE_PHOTO, PAGE_COUNT };
 static int page = PAGE_BUDDY;
 static bool canvasOk = false;
 
@@ -179,8 +180,12 @@ static bool simMode = false;
 static Sensors simS = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
 static char line[160]; static uint8_t lineLen = 0;
 
+static bool canvasPage() { return page == PAGE_BUDDY || page == PAGE_SHOTS; }
+
 static void renderBuddyFrame() {
-  if (calStep >= 0) calDraw(canvas); else buddyDraw(canvas);
+  if (calStep >= 0) calDraw(canvas);
+  else if (page == PAGE_SHOTS) shotsDraw(canvas);
+  else buddyDraw(canvas);
   canvas->flush();
 }
 
@@ -193,12 +198,12 @@ static void handleCommand(char *c) {
   } else if (!strncmp(c, "step ", 5)) {
     int n = atoi(c + 5);
     for (int i = 0; i < n; i++) {
-      buddyUpdate(simS, 1.0f / 30);
+      if (page == PAGE_SHOTS) shotsUpdate(simS, 1.0f / 30); else buddyUpdate(simS, 1.0f / 30);
       if (simS.stillSec > 0) simS.stillSec += 1.0f / 30;
     }
     renderBuddyFrame();
     static uint32_t nStep = 0;
-    Serial.printf("ok step #%u %s\n", ++nStep, buddyDebug());
+    Serial.printf("ok step #%u %s\n", ++nStep, page == PAGE_SHOTS ? shotsDebug() : buddyDebug());
   } else if (!strcmp(c, "dump")) {
     if (!canvasOk) { Serial.println("err no canvas"); return; }
     Serial.printf("FBDUMP %d %d\n", SCREEN_W, SCREEN_H);
@@ -217,6 +222,7 @@ static void handleCommand(char *c) {
                   screenFrame.X[0], screenFrame.X[1], screenFrame.X[2], screenFrame.Y[0], screenFrame.Y[1], screenFrame.Y[2],
                   screenFrame.Z[0], screenFrame.Z[1], screenFrame.Z[2], se.gx, se.gy, se.gz);
   }
+  else if (!strcmp(c, "next")) { shotsNext(); Serial.println("ok next"); }
   else if (!strcmp(c, "calpress")) { if (calStep == 0 || calStep == 1) { calConfirm(); Serial.printf("ok calpress step=%d\n", calStep); } else Serial.println("err not calibrating"); }
   else if (!strcmp(c, "calstep")) Serial.printf("ok calstep=%d capturing=%d\n", calStep, calCapturing);
   else if (!strcmp(c, "calsave")) { frameSave(); Serial.println("ok saved"); }
@@ -271,6 +277,7 @@ void setup() {
   imuBegin();
   if (!frameLoad()) calStart();
   buddyInit();
+  shotsInit();
   stockBegin();
   showPage();
 }
@@ -285,13 +292,14 @@ void loop() {
   } else {
     if (p == 1) { page = (page + 1) % PAGE_COUNT; sfx::click(); showPage(); }
     if (page == PAGE_BUDDY && bt == 1) buddyBootShort();
+    if (page == PAGE_SHOTS && bt == 1) shotsNext();
     if (page == PAGE_BUDDY && bt == 2) { calStart(); sfx::click(); }
   }
   if (calStep == 2 && millis() - calDoneAt > 1800) { calStep = -1; buddySay("Nu kör vi!", 2, 3); }
 
   if (page == PAGE_STOCK && stockConsumeDirty()) drawStock();
 
-  if (page == PAGE_BUDDY && canvasOk && !simMode) {
+  if (canvasPage() && canvasOk && !simMode) {
     static uint32_t last = millis();
     uint32_t now = millis();
     float dt = (now - last) / 1000.0f;
@@ -301,15 +309,15 @@ void loop() {
     calTick();
     if (calStep < 0) {
       Sensors s = sensorsFromImu(snap, dt);
-      buddyUpdate(s, dt);
-      backlight(buddyAsleep() ? 40 : 255);
+      if (page == PAGE_SHOTS) { shotsUpdate(s, dt); backlight(255); }
+      else { buddyUpdate(s, dt); backlight(buddyAsleep() ? 40 : 255); }
     }
     renderBuddyFrame();
 
     static uint32_t frames = 0, nextLog = 0;
     frames++;
     if (now > nextLog) {
-      Serial.printf("fps=%.1f heap=%u %s\n", frames / 5.0f, ESP.getFreeHeap(), buddyDebug());
+      Serial.printf("fps=%.1f heap=%u %s\n", frames / 5.0f, ESP.getFreeHeap(), page == PAGE_SHOTS ? shotsDebug() : buddyDebug());
       frames = 0; nextLog = now + 5000;
     }
   } else {

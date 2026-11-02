@@ -25,4 +25,7 @@ void wiii();
 void yawn();
 void tada();
 void dance();
+void burp();
+void glug();
+void sizzle();
 }
