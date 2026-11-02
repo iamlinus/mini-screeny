@@ -10,8 +10,7 @@ const float W = SCREEN_W, H = SCREEN_H, PI_F = 3.14159265f;
 struct V2 { float x, y; };
 
 // glass geometry (screen px). Interior is where liquid can be; the rim is the top edge.
-const V2 INNER[4] = {{66, 74}, {174, 74}, {160, 206}, {80, 206}};
-const V2 OUTER[4] = {{56, 64}, {184, 64}, {170, 236}, {70, 236}};
+const V2 INNER[4] = {{0, 0}, {240, 0}, {240, 280}, {0, 280}};   // the whole screen is the glass; the top edge is the rim
 
 struct ShotType {
   const char *name;
@@ -107,7 +106,7 @@ void say(const char *m, float sec) { strlcpy(msg, m, sizeof msg); msgLeft = sec;
 
 void seedFlakes() {
   for (auto &f : flakes) {
-    do { f.x = 70 + frand() * 100; f.y = 90 + frand() * 110; } while (!insideInner(f.x, f.y));
+    f.x = 12 + frand() * 216; f.y = 140 + frand() * 130;
     f.vx = f.vy = 0; f.kind = frand() < 0.6f ? 0 : 1;
   }
 }
@@ -120,11 +119,13 @@ uint16_t mix(Arduino_GFX *g, uint8_t r, uint8_t gg, uint8_t b, float k) {   // k
 }  // namespace
 
 void shotsInit() {
-  V0 = area(INNER, 4) * 0.62f;
+  V0 = area(INNER, 4) * 0.58f;
   V = V0; phi = 0; phiV = 0; empty = refilling = drinking = false;
   for (auto &d : drops) d.on = false;
   seedFlakes();
 }
+
+void shotsEnter() { say(TYPES[type].name, 1.6f); }
 
 void shotsNext() {
   type = (type + 1) % NTYPES;
@@ -160,7 +161,7 @@ void shotsUpdate(const Sensors &s, float dt) {
     float r1 = INNER[0].x * nx + INNER[0].y * ny, r2 = INNER[1].x * nx + INNER[1].y * ny;
     float depth = fmaxf(r1, r2) - d;
     if (depth > 0) {
-      pourRate = fminf(8500, 230 * depth + 900);
+      pourRate = fminf(V0 * 0.9f, depth * V0 / 45 + V0 * 0.1f);   // ~1 s to drain at full tilt
       float dv = fminf(V, pourRate * dt);
       V -= dv; drained += dv;
       pourAt = r1 > r2 ? INNER[0] : INNER[1];
@@ -182,7 +183,13 @@ void shotsUpdate(const Sensors &s, float dt) {
       shotsDrunk++;
       const ShotType &st = TYPES[type];
       if (st.flakes) { heatLeft = 2.8f; say(st.after, 2.8f); sfx::sizzle(); }
-      else { say(shotsDrunk >= 5 && shotsDrunk % 5 == 0 ? "Ta det lugnt nu!" : (shotsDrunk % 2 ? "Skål!" : st.after), 2.2f); sfx::burp(); }
+      else {
+        static char m[40];
+        if (shotsDrunk >= 5 && shotsDrunk % 5 == 0) snprintf(m, sizeof m, "Ta det lugnt nu!");
+        else if (shotsDrunk % 2) snprintf(m, sizeof m, "Skål! #%d", shotsDrunk);
+        else snprintf(m, sizeof m, "%s", st.after);
+        say(m, 2.2f); sfx::burp();
+      }
     }
     drained = 0;
   }
@@ -194,7 +201,7 @@ void shotsUpdate(const Sensors &s, float dt) {
     if (emptyT > 1.3f && ny > 0.8f && heatLeft <= 0) { empty = false; refilling = true; sfx::glug(); }
   }
   if (refilling) {
-    V += V0 * dt / 1.3f;
+    V += V0 * dt / 1.5f;
     if (V >= V0) { V = V0; refilling = false; }
   }
 
@@ -219,140 +226,144 @@ void shotsUpdate(const Sensors &s, float dt) {
   heatLeft -= dt;
 }
 
-void shotsDraw(Arduino_GFX *g) {
-  const ShotType &st = TYPES[type];
-  const uint16_t BG = g->color565(16, 13, 22);
-  g->fillScreen(BG);
-
-  // tipsy sway after a few shots
-  float ox = shotsDrunk >= 4 ? sinf(t * 1.6f) * fminf(12, 3.0f * (shotsDrunk - 3)) : 0;
-
-  // heat flash behind everything
-  if (heatLeft > 0) {
-    float f = fminf(1, heatLeft / 2.8f) * (0.6f + 0.4f * sinf(t * 25));
-    g->fillScreen(g->color565(16 + 90 * f, 13 + 10 * f, 22));
-  }
-
-  // tequila lime sits on the rim, behind the glass
-  if (st.saltLime) {
-    int lx = lroundf(176 + ox), ly = 64;
-    g->fillCircle(lx, ly, 17, g->color565(70, 160, 40));
-    g->fillCircle(lx, ly, 14, g->color565(190, 230, 110));
-    for (int k = 0; k < 6; k++) {
-      float a = k * PI_F / 3;
-      g->drawLine(lx, ly, lx + lroundf(cosf(a) * 13), ly + lroundf(sinf(a) * 13), g->color565(240, 250, 200));
+// blend framebuffer pixels toward white (k>0) or black (k<0): cheap translucent glass effects
+static void shade(int x0, int y0, int w, int h, float k) {
+  uint16_t *fb = canvas->getFramebuffer();
+  if (!fb) return;
+  int x1 = min((int)W, x0 + w), y1 = min((int)H, y0 + h);
+  x0 = max(0, x0); y0 = max(0, y0);
+  for (int y = y0; y < y1; y++) {
+    uint16_t *row = fb + y * (int)W;
+    for (int x = x0; x < x1; x++) {
+      uint16_t v = row[x];
+      int r = v >> 11, gg = (v >> 5) & 63, bb = v & 31;
+      if (k > 0) { r += (31 - r) * k; gg += (63 - gg) * k; bb += (31 - bb) * k; }
+      else { r *= 1 + k; gg *= 1 + k; bb *= 1 + k; }
+      row[x] = (r << 11) | (gg << 5) | bb;
     }
   }
+}
 
-  // glass
-  fillPoly(g, OUTER, 4, g->color565(78, 92, 112), ox);
-  fillPoly(g, INNER, 4, g->color565(28, 30, 42), ox);
+void shotsDraw(Arduino_GFX *g) {
+  const ShotType &st = TYPES[type];
+  g->fillScreen(g->color565(20, 22, 32));        // the empty part of the glass
 
-  // liquid
-  float nx = sinf(phi), ny = cosf(phi);
+  // tipsy: the world sways a little after a few shots
+  float sway = shotsDrunk >= 4 ? sinf(t * 1.3f) * fminf(0.18f, 0.045f * (shotsDrunk - 3)) : 0;
+  float ang = phi + sway;
+  float nx = sinf(ang), ny = cosf(ang);
+
+  // heat flash in the empty space
+  if (heatLeft > 0) {
+    float f = fminf(1, heatLeft / 2.8f) * (0.6f + 0.4f * sinf(t * 25));
+    g->fillScreen(g->color565(20 + 110 * f, 22 + 12 * f, 32));
+  }
+
   V2 poly[8];
+  float d = 0;
+  int n = 0;
   if (V > 1) {
-    float d = solveLevel(nx, ny, V);
-    int n = clipHalf(INNER, 4, nx, ny, d, poly);
+    d = solveLevel(nx, ny, V);
+    n = clipHalf(INNER, 4, nx, ny, d, poly);
     if (st.layers == 1) {
-      fillPoly(g, poly, n, g->color565(st.r, st.g, st.b), ox);
-      // deeper half a bit darker for depth
-      float d2 = solveLevel(nx, ny, V * 0.55f);
-      V2 p2[8]; int n2 = clipHalf(INNER, 4, nx, ny, d2, p2);
-      fillPoly(g, p2, n2, mix(g, st.r, st.g, st.b, 0.9f), ox);
+      // depth gradient: lighter just under the surface, darker toward the bottom
+      const int NB = 10;
+      float vols[NB], ks[NB];
+      for (int i = 0; i < NB; i++) { vols[i] = 1.0f - i * 0.095f; ks[i] = 1.10f - i * 0.036f; }
+      for (int i = 0; i < NB; i++) {
+        V2 pp[8];
+        int m = clipHalf(INNER, 4, nx, ny, solveLevel(nx, ny, V * vols[i]), pp);
+        fillPoly(g, pp, m, mix(g, st.r, st.g, st.b, ks[i]), 0);
+      }
     } else {
-      // painter from the top layer down
       float cum = 1;
       for (int L = st.layers - 1; L >= 0; L--) {
-        float dl = solveLevel(nx, ny, V * cum);
-        V2 pl[8]; int nl = clipHalf(INNER, 4, nx, ny, dl, pl);
-        fillPoly(g, pl, nl, g->color565(st.lr[L], st.lg[L], st.lb[L]), ox);
+        V2 pl[8];
+        int nl = clipHalf(INNER, 4, nx, ny, solveLevel(nx, ny, V * cum), pl);
+        fillPoly(g, pl, nl, g->color565(st.lr[L], st.lg[L], st.lb[L]), 0);
         cum -= st.frac[L];
       }
     }
-    // flakes (chili + ginger) inside the liquid only
     if (st.flakes) {
       for (auto &f : flakes) {
-        if (f.x * nx + f.y * ny < d + 3) continue;
-        int X = lroundf(f.x + ox), Y = lroundf(f.y);
-        if (f.kind == 0) g->fillRect(X - 1, Y - 1, 3, 3, g->color565(170, 18, 12));
-        else g->fillRect(X - 2, Y, 5, 2, g->color565(248, 214, 120));
+        if (f.x * nx + f.y * ny < d + 4) continue;
+        int X = lroundf(f.x), Y = lroundf(f.y);
+        if (f.kind == 0) g->fillRect(X - 2, Y - 2, 4, 4, g->color565(165, 16, 10));
+        else g->fillRect(X - 3, Y, 7, 3, g->color565(250, 218, 125));
       }
     }
-    // shiny surface line
+    // surface: bright line + a soft lighter band just below it
     V2 a = {0, 0}, b2 = {0, 0}; int found = 0;
-    for (int i = 0; i < n; i++) {
-      float v = poly[i].x * nx + poly[i].y * ny - d;
-      if (fabsf(v) < 0.6f) { if (found == 0) a = poly[i]; else b2 = poly[i]; found++; }
-    }
+    for (int i = 0; i < n; i++)
+      if (fabsf(poly[i].x * nx + poly[i].y * ny - d) < 0.6f) { if (found == 0) a = poly[i]; else b2 = poly[i]; found++; }
     if (found >= 2) {
-      uint16_t hl = st.layers > 1 ? mix(g, st.lr[2], st.lg[2], st.lb[2], 1.35f) : mix(g, st.r, st.g, st.b, 1.4f);
-      g->drawLine(lroundf(a.x + ox), lroundf(a.y), lroundf(b2.x + ox), lroundf(b2.y), hl);
-      g->drawLine(lroundf(a.x + ox), lroundf(a.y) + 1, lroundf(b2.x + ox), lroundf(b2.y) + 1, hl);
+      uint16_t hl = st.layers > 1 ? mix(g, st.lr[2], st.lg[2], st.lb[2], 1.5f) : mix(g, st.r, st.g, st.b, 1.55f);
+      for (int k = 0; k < 3; k++)
+        g->drawLine(lroundf(a.x + nx * k), lroundf(a.y + ny * k), lroundf(b2.x + nx * k), lroundf(b2.y + ny * k), hl);
     }
   }
 
-  // refill stream from above
+  // refill stream pouring in from the rim
   if (refilling) {
     uint16_t c = st.layers > 1 ? g->color565(st.lr[0], st.lg[0], st.lb[0]) : g->color565(st.r, st.g, st.b);
-    g->fillRect(lroundf(117 + ox), 0, 6, 200, c);
+    int sw = 10 + (int)(3 * sinf(t * 30));
+    float surf = n ? (d - 120 * nx) / fmaxf(0.2f, ny) : 280;   // where the stream meets the surface (x = 120)
+    g->fillRect(120 - sw / 2, 0, sw, (int)clampf(surf, 0, 280) + 4, c);
+    for (int k = 0; k < 6; k++) {
+      float bx = 120 + sinf(t * 17 + k * 2.1f) * 26, by = clampf(surf, 0, 280) + 6 + fmodf(t * 90 + k * 23, 60);
+      g->drawCircle(lroundf(bx), lroundf(by), 2 + k % 3, mix(g, st.r, st.g, st.b, 1.5f));
+    }
   }
 
-  // glass highlights + rim
-  uint16_t hi = g->color565(190, 205, 225);
-  g->drawLine(lroundf(70 + ox), 84, lroundf(81 + ox), 196, hi);
-  g->drawLine(lroundf(71 + ox), 84, lroundf(82 + ox), 196, hi);
-  g->drawLine(lroundf(165 + ox), 90, lroundf(158 + ox), 160, g->color565(120, 135, 155));
-  g->fillRect(lroundf(56 + ox), 63, 129, 3, g->color565(160, 176, 198));
-  g->fillRect(lroundf(84 + ox), 214, 72, 3, g->color565(110, 124, 146));
-
-  // tequila: salt on the rim and a lime wedge
-  if (st.saltLime) {
-    for (int i = 0; i < 26; i++) g->fillRect(lroundf(58 + i * 4.8f + ox), 61 + (i * 7) % 3, 2, 2, g->color565(250, 250, 250));
-  }
-
-  // drops
+  // drops leaving over the rim
   for (auto &dp : drops) if (dp.on) {
     uint16_t c = st.layers > 1 ? g->color565(st.lr[2], st.lg[2], st.lb[2]) : g->color565(st.r, st.g, st.b);
-    g->fillCircle(lroundf(dp.x + ox), lroundf(dp.y), 2, c);
+    g->fillCircle(lroundf(dp.x), lroundf(dp.y), 3, c);
+  }
+
+  // tequila: salt crusted on the rim and a lime wedge hooked over it
+  if (st.saltLime) {
+    for (int i = 0; i < 60; i++) g->fillRect(2 + i * 4, (i * 7) % 4, 2 + (i % 2), 2, g->color565(250, 250, 248));
+    int lx = 206, ly = -2;
+    g->fillCircle(lx, ly, 30, g->color565(70, 160, 40));
+    g->fillCircle(lx, ly, 26, g->color565(195, 232, 115));
+    for (int k = 0; k < 7; k++) {
+      float aa = PI_F * 0.05f + k * PI_F / 7;
+      g->drawLine(lx, ly, lx + lroundf(cosf(aa) * 24), ly + lroundf(sinf(aa) * 24), g->color565(240, 250, 200));
+    }
   }
 
   // flames when the chili kicks in
   if (heatLeft > 0) {
     for (int i = 0; i < 9; i++) {
       float fx = 14 + i * 26.5f;
-      float h = 34 + 22 * sinf(t * 14 + i * 1.7f) + 10 * sinf(t * 23 + i);
-      g->fillTriangle(lroundf(fx - 14), 280, lroundf(fx + 14), 280, lroundf(fx + sinf(t * 9 + i) * 5), lroundf(280 - h), g->color565(240, 60, 20));
-      g->fillTriangle(lroundf(fx - 8), 280, lroundf(fx + 8), 280, lroundf(fx + sinf(t * 11 + i) * 4), lroundf(280 - h * 0.6f), g->color565(255, 170, 30));
-      g->fillTriangle(lroundf(fx - 3), 280, lroundf(fx + 3), 280, fx, lroundf(280 - h * 0.3f), g->color565(255, 240, 140));
+      float h = 50 + 30 * sinf(t * 14 + i * 1.7f) + 12 * sinf(t * 23 + i);
+      g->fillTriangle(lroundf(fx - 16), 280, lroundf(fx + 16), 280, lroundf(fx + sinf(t * 9 + i) * 5), lroundf(280 - h), g->color565(240, 60, 20));
+      g->fillTriangle(lroundf(fx - 9), 280, lroundf(fx + 9), 280, lroundf(fx + sinf(t * 11 + i) * 4), lroundf(280 - h * 0.6f), g->color565(255, 170, 30));
+      g->fillTriangle(lroundf(fx - 4), 280, lroundf(fx + 4), 280, fx, lroundf(280 - h * 0.3f), g->color565(255, 240, 140));
     }
   }
 
-  // header: shot name + count
-  g->setFont(u8g2_font_helvB12_tf);
-  g->setTextColor(g->color565(245, 240, 235));
-  int16_t x1, y1; uint16_t w, h;
-  g->getTextBounds(st.name, 0, 0, &x1, &y1, &w, &h);
-  g->setCursor(120 - w / 2 - x1, 40);
-  g->print(st.name);
-  g->setFont(u8g2_font_helvR08_tf);
-  g->setTextColor(g->color565(150, 140, 160));
-  char foot[32];
-  snprintf(foot, sizeof foot, "BOOT = byt  ·  shots: %d", shotsDrunk);
-  g->getTextBounds(foot, 0, 0, &x1, &y1, &w, &h);
-  g->setCursor(120 - w / 2 - x1, 262);
-  g->print(foot);
+  // glass: thick darker walls and two vertical reflections
+  shade(0, 0, 6, 280, -0.35f);
+  shade(234, 0, 6, 280, -0.35f);
+  shade(6, 0, 3, 280, -0.15f);
+  shade(231, 0, 3, 280, -0.15f);
+  shade(18, 0, 7, 280, 0.22f);
+  shade(28, 0, 2, 280, 0.14f);
+  shade(206, 0, 4, 280, 0.12f);
+  shade(0, 0, 240, 3, 0.35f);     // the rim
 
-  // message
+  // messages (shot name on switch, cheers, HETT)
   if (msgLeft > 0) {
     bool big = heatLeft > 0;
+    int16_t x1, y1; uint16_t w, h;
     g->setFont(big ? u8g2_font_helvB24_tf : u8g2_font_helvB14_tf);
     g->getTextBounds(msg, 0, 0, &x1, &y1, &w, &h);
-    int pw = w + 28, ph = big ? 48 : 34, py = 120;
-    float pop = big ? 1 + 0.06f * sinf(t * 30) : 1;
+    int pw = w + 28, ph = big ? 48 : 34, py = 112;
     g->fillRoundRect(120 - pw / 2, py, pw, ph, 14, big ? g->color565(255, 230, 90) : g->color565(250, 246, 240));
     g->setTextColor(big ? g->color565(200, 30, 10) : g->color565(32, 20, 18));
-    g->setCursor(120 - w / 2 - x1 + lroundf((pop - 1) * 40 * sinf(t * 40)), py + (big ? 36 : 24));
+    g->setCursor(120 - w / 2 - x1 + (big ? lroundf(2 * sinf(t * 40)) : 0), py + (big ? 36 : 24));
     g->print(msg);
   }
 }

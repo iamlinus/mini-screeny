@@ -165,6 +165,7 @@ static void drawPhoto() {
 
 static void showPage() {
   backlight(255);
+  if (page == PAGE_SHOTS) shotsEnter();
   if (page == PAGE_STOCK) drawStock();
   else if (page == PAGE_PHOTO) drawPhoto();
 }

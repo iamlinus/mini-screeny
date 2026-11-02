@@ -6,5 +6,6 @@
 void shotsInit();
 void shotsUpdate(const Sensors &s, float dt);
 void shotsDraw(Arduino_GFX *g);
+void shotsEnter();           // page shown: flash the shot name
 void shotsNext();            // BOOT: next shot type
 const char *shotsDebug();
