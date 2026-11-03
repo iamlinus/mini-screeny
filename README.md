@@ -56,6 +56,7 @@ Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 | Knapp | Gör |
 |---|---|
 | PWR | Nästa sida |
+| BOOT två snabba tryck | Hämtar all data på nytt (Claude-kvoterna högst en gång i minuten) |
 | BOOT tre snabba tryck | Öppnar inställningssidan i webbläsaren på Macen |
 | BOOT långt tryck (på gubbsidan) | Kalibrera om |
 
@@ -85,7 +86,7 @@ Skärmen är tyst (öppet kontorslandskap). Ljudet finns kvar i koden: lägg til
 .venv/bin/python -I tools/sim.py shot tools/out/now.png  # skärmdump så som skärmen ser ut i monteringen (lägg till `raw` för panelens oroterade bild)
 ```
 
-Serial-kommandon (dator → kort): `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`, `bootclicks N` (test). Kort → dator: `evt settings` (BOOT tre gånger), `mini-screeny boot`.
+Serial-kommandon (dator → kort): `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`, `bootclicks N` (test). Kort → dator: `evt refresh` (BOOT två gånger), `evt settings` (BOOT tre gånger), `mini-screeny boot`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
 `buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `football.*` (fotbollssidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/webconfig.*` (inställningssidan), `tools/config.py` (`config.toml`), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).

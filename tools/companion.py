@@ -100,6 +100,7 @@ class Source:
         self.tag, self.every, self.fetch, self.page = tag, every, fetch, page
         self.ok_at = 0.0          # last successful fetch (for the settings page)
         self.error = ""
+        self.kick = threading.Event()   # set = fetch now (BOOT double press on the board)
         self.line = None        # last good payload, encoded; None = nothing to send
         self.version = 0        # bumped on every fresh line
         self.rounds = 0
@@ -121,9 +122,11 @@ class Source:
             # sleep, but wake early when config.toml changes (new team/stock/name takes effect at once)
             seen = config.load(log)
             while time.time() - t0 < self.every:
-                time.sleep(min(5.0, max(1.0, self.every - (time.time() - t0))))
+                if self.kick.wait(min(5.0, max(1.0, self.every - (time.time() - t0)))):
+                    break
                 if config.load(log) is not seen:
                     break
+            self.kick.clear()
 
     def refresh(self, args):
         try:
@@ -145,6 +148,21 @@ class Source:
             self.ok = False
             self.error = str(e)[:80]
             self.line = None    # do not keep feeding old values as if they were fresh
+
+
+_refreshed_at = 0.0
+
+
+def refresh_all():
+    """BOOT pressed twice on the board: fetch every page's data now (at most every 10 s)."""
+    global _refreshed_at
+    if time.time() - _refreshed_at < 10:
+        return
+    _refreshed_at = time.time()
+    log("board asked for fresh data")
+    _claude.request_refresh()
+    for s in SOURCES:
+        s.kick.set()
 
 
 SOURCES = [
@@ -224,6 +242,8 @@ class Board:
                 continue
             if ln == "evt settings":
                 self._open_settings()
+            elif ln == "evt refresh":
+                refresh_all()
             elif ln == "mini-screeny boot":
                 log("board booted, resending everything")
                 self.booted.set()

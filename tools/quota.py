@@ -134,6 +134,7 @@ class ClaudeUsage:
         self.fail_streak = 0
         self.dead = {}            # token value -> reason; never sent again
         self.status = None
+        self.probed_at = 0.0
         self.cooldown_until = self._load_cooldown()
 
     def _load_cooldown(self):
@@ -159,9 +160,14 @@ class ClaudeUsage:
         now = time.time()
         if now < max(self.next_at, self.cooldown_until):
             return
+        self.probed_at = time.time()
         status, wait = self._cycle()
         self._set_status(status)
         self.next_at = time.time() + wait
+
+    def request_refresh(self):
+        """Manual refresh (BOOT double press): probe soon, but at most once a minute; a 429 rest still holds."""
+        self.next_at = min(self.next_at, max(time.time(), self.probed_at + 60))
 
     def _cycle(self):
         cands, reason = [], None
