@@ -81,6 +81,7 @@ void footballDraw(Arduino_GFX *g) {
   using namespace theme;
   g->fillScreen(BG);
   drawLinkMark(g, SCREEN_W - 24, 22, mark());
+  if (drawNoData(g, H.any)) return;
   const int L = 26, R = 150;
 
   // ---- table position ----

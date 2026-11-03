@@ -1,6 +1,6 @@
 // mini screeny – Waveshare ESP32-S3-LCD-1.69
 // Pages (PWR): Claude buddy, stock, Claude quota (VibePulse), football team; which ones and in what
-// order comes from config.toml on the Mac ("cfg" line), stored in NVS.  BOOT: two quick presses = refresh all data, three = settings page on the Mac; long press on the buddy page = recalibrate.
+// order comes from config.toml on the Mac ("cfg" line), stored in NVS.  BOOT: once = refresh all data, twice = settings page on the Mac, three times = GitHub; long press on the buddy page = recalibrate.
 // No network on the board: tools/companion.py on the Mac fetches the data and sends it over USB serial.
 #include "board.h"
 #include <nvs_flash.h>
@@ -237,8 +237,9 @@ static void showPage() {
 //   cfg {json}                      {"name": owner, "pages": [page numbers in PWR order]} from config.toml
 //   nvswipe                         erase the NVS partition, keep calibration + mute (one-off cleanup)
 //   ping                            keep-alive from the companion (no reply)
-// Board -> companion: "evt refresh" (BOOT twice) = fetch everything now,
-//                     "evt settings" (BOOT three times) = open the settings page on the Mac
+// Board -> companion: "evt refresh" (BOOT once) = fetch everything now,
+//                     "evt settings" (BOOT twice) = open the settings page on the Mac,
+//                     "evt github" (BOOT three times) = open the project on GitHub
 //   hello                           "ok hello mini-screeny ..." (the board also prints "mini-screeny boot" at start)
 static bool simMode = false;
 static Sensors simS = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -260,7 +261,7 @@ static void toast(const char *msg, uint32_t ms) {
   if (page != PAGE_BUDDY) showPage();   // data pages redraw only on demand
 }
 
-// BOOT pressed twice quickly: ask the companion to fetch all data now.
+// BOOT pressed once: ask the companion to fetch all data now.
 static void refreshOnMac() {
   if (linkAlive()) {
     Serial.println("evt refresh");
@@ -270,15 +271,14 @@ static void refreshOnMac() {
   }
 }
 
-// BOOT pressed three times quickly: ask the companion on the Mac to open the settings page.
-static void openSettingsOnMac() {
+// Ask the companion to open something on the Mac (BOOT x2 = settings page, x3 = the project on GitHub).
+static void openOnMac(const char *evt, const char *msg) {
   if (linkAlive()) {
-    Serial.println("evt settings");
-    toast("Öppnar på datorn ...", 2500);
+    Serial.println(evt);
+    toast(msg, 2500);
   } else {
     toast("Ingen kontakt med datorn", 2500);
   }
-  sfx::click();
 }
 
 // "cfg {json}": owner name + page order. Written to NVS only when something changed (sent every minute).
@@ -443,11 +443,13 @@ void loop() {
     if (p == 1 || bt == 1) calConfirm();
   } else {
     if (p == 1) { int i = orderIndex(page); page = order[(i + 1) % nOrder]; sfx::click(); showPage(); }
-    // BOOT short presses are counted: two quickly = fetch all data now, three = settings page on the Mac.
+    // BOOT short presses are counted (a press acts ~0.4 s after the last one):
+    // one = fetch all data now, two = settings page on the Mac, three = the project on GitHub.
     if (bt == 1) { bootClicks++; bootLast = millis(); }
     if (bootClicks && millis() - bootLast > 420) {
-      if (bootClicks >= 3) openSettingsOnMac();
-      else if (bootClicks == 2) refreshOnMac();
+      if (bootClicks >= 3) openOnMac("evt github", "Öppnar GitHub på datorn ...");
+      else if (bootClicks == 2) openOnMac("evt settings", "Öppnar inställningarna ...");
+      else refreshOnMac();
       bootClicks = 0;
     }
     if (page == PAGE_BUDDY && bt == 2) { calStart(); sfx::click(); }

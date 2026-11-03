@@ -1,6 +1,20 @@
 # mini screeny
 
-Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduino via PlatformIO.
+En liten skärm som sitter i USB-uttaget på datorskärmen: en Claude-gubbe som reagerar på rörelser, en aktiekurs, dina Claude-kvoter och ditt fotbollslag. Skärmen har inget eget nätverk. Ett litet program på Macen (companion-servern) hämtar datan och skickar den över USB-kabeln.
+
+Hårdvara: Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU), Arduino via PlatformIO.
+
+## Installera på datorn (en gång)
+Koppla in skärmen med USB. Visar den "Installera på datorn" saknas companion-servern. Enklast är att be **Claude Code**:
+
+> Installera mini screeny från github.com/iamlinus/mini-screeny
+
+(Claude följer [`INSTALL.md`](INSTALL.md).) Eller för hand i Terminal:
+```sh
+git clone https://github.com/iamlinus/mini-screeny.git ~/mini-screeny
+~/mini-screeny/install.sh
+```
+`install.sh` skapar en Python-miljö (hämtar Python 3.12 via `uv`), startar companion-servern nu och vid varje inloggning, och öppnar inställningssidan. Frågar macOS om Nyckelringen ("Claude Code-credentials"), välj *Tillåt alltid*: det är så Claude-kvoterna läses. Uppdatera: `git pull` och kör `install.sh` igen. Ta bort: `tools/companion_launchagent.sh uninstall`.
 
 ## Sidor (PWR byter sida)
 1. **Gubben**: en interaktiv figur som styrs av rörelsesensorn och hälsar med ditt namn
@@ -56,8 +70,9 @@ Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 | Knapp | Gör |
 |---|---|
 | PWR | Nästa sida |
-| BOOT två snabba tryck | Hämtar all data på nytt (Claude-kvoterna högst en gång i minuten) |
-| BOOT tre snabba tryck | Öppnar inställningssidan i webbläsaren på Macen |
+| BOOT ett tryck | Hämtar all data på nytt (Claude-kvoterna högst en gång i minuten) |
+| BOOT två snabba tryck | Öppnar inställningssidan i webbläsaren på Macen |
+| BOOT tre snabba tryck | Öppnar projektet på GitHub |
 | BOOT långt tryck (på gubbsidan) | Kalibrera om |
 
 Skärmen är tyst (öppet kontorslandskap). Ljudet finns kvar i koden: lägg till `-DWITH_SOUND` i `build_flags` i `platformio.ini` för att slå på det.
@@ -86,7 +101,7 @@ Skärmen är tyst (öppet kontorslandskap). Ljudet finns kvar i koden: lägg til
 .venv/bin/python -I tools/sim.py shot tools/out/now.png  # skärmdump så som skärmen ser ut i monteringen (lägg till `raw` för panelens oroterade bild)
 ```
 
-Serial-kommandon (dator → kort): `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`, `bootclicks N` (test). Kort → dator: `evt refresh` (BOOT två gånger), `evt settings` (BOOT tre gånger), `mini-screeny boot`.
+Serial-kommandon (dator → kort): `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`, `bootclicks N` (test). Kort → dator: `evt refresh` (BOOT ×1), `evt settings` (BOOT ×2), `evt github` (BOOT ×3), `mini-screeny boot`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
 `buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `football.*` (fotbollssidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/webconfig.*` (inställningssidan), `tools/config.py` (`config.toml`), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).

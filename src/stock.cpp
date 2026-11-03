@@ -104,11 +104,7 @@ void drawStock(Arduino_GFX *g) {
 
   g->fillScreen(BG);
   drawLinkMark(g, W - 30, 31, mark());
-  if (!d.any) {   // nothing from the companion yet
-    g->setFont(u8g2_font_helvR10_tf); g->setTextColor(MUTED);
-    centerText(g, "Väntar på datorn ...", cx, SCREEN_H / 2 + 4);
-    return;
-  }
+  if (drawNoData(g, d.any)) return;
   g->setFont(u8g2_font_helvB14_tf);
   g->setTextColor(TEXT);
   centerText(g, d.name, cx, 36);

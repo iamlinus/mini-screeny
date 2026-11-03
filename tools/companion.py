@@ -40,6 +40,7 @@ import config
 import webconfig
 
 MAX_LINE = 700        # the board's line buffer is 768 bytes including the tag
+REPO_URL = "https://github.com/iamlinus/mini-screeny"
 PING_EVERY_S = 10     # keep-alive: the board shows "ø" after 25 s without any line from us
 UA = "mini-screeny-companion/1"
 
@@ -154,7 +155,7 @@ _refreshed_at = 0.0
 
 
 def refresh_all():
-    """BOOT pressed twice on the board: fetch every page's data now (at most every 10 s)."""
+    """BOOT pressed once on the board: fetch every page's data now (at most every 10 s)."""
     global _refreshed_at
     if time.time() - _refreshed_at < 10:
         return
@@ -218,16 +219,16 @@ class Board:
 
     _opened_at = 0.0
 
-    def _open_settings(self):
-        # BOOT pressed three times on the board: open the settings page (at most every 5 s)
+    def _open(self, url, what):
+        # BOOT pressed twice/three times on the board: open a page in the browser (at most every 5 s)
         if time.time() - self._opened_at < 5:
             return
         self._opened_at = time.time()
-        log("board asked for the settings page")
+        log(f"board asked for {what}")
         try:
-            subprocess.Popen(["open", f"http://localhost:{webconfig.PORT}"])
+            subprocess.Popen(["open", url])
         except OSError as e:
-            log(f"cannot open the settings page: {e}")
+            log(f"cannot open {url}: {e}")
 
     def _reader(self, ser):
         # Keep draining the board's output; an unread USB CDC buffer slows the board's loop down.
@@ -241,7 +242,9 @@ class Board:
             if not ln:
                 continue
             if ln == "evt settings":
-                self._open_settings()
+                self._open(f"http://localhost:{webconfig.PORT}", "the settings page")
+            elif ln == "evt github":
+                self._open(REPO_URL, "the project on GitHub")
             elif ln == "evt refresh":
                 refresh_all()
             elif ln == "mini-screeny boot":

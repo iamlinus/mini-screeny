@@ -140,6 +140,7 @@ void pulseDraw(Arduino_GFX *g) {
 
   g->fillScreen(BG);
   drawLinkMark(g, SCREEN_W - 24, 22, mark());
+  if (drawNoData(g, P.any)) return;
 
   // Session ring (Claude 5 h window)
   const int cx = SCREEN_W / 2, cy = 90, ro = 76, ri = 62;

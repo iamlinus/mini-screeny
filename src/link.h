@@ -14,3 +14,8 @@ bool linkAlive();
 enum LinkState { LINK_NONE, LINK_OLD, LINK_FRESH };
 LinkState linkState(bool hasData, uint32_t dataAgeMs, uint32_t oldMs = DATA_OLD_MS);
 void drawLinkMark(Arduino_GFX *g, int x, int y, LinkState s);   // (x, y) = centre of the mark
+
+#define REPO_URL "github.com/iamlinus/mini-screeny"
+// For a data page that has nothing to show yet: no contact with a companion at all -> how to install it;
+// contact but no data yet -> "waiting". Returns true if it drew the page (the caller then stops).
+bool drawNoData(Arduino_GFX *g, bool hasData);
