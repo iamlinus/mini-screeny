@@ -27,7 +27,8 @@ CLAUDE_MAX_AGE_S = 30 * 60    # older than this: show dashes rather than old num
 MODEL_LABELS = {"fable": "FABLE · VECKA", "opus": "OPUS · VECKA", "sonnet": "SONNET · VECKA"}
 
 _DESKTOP_PROCESS = re.compile(
-    r"^/Users/[^/\s]+/Library/Application Support/Claude/claude-code/[^/\s]+/claude\.app/Contents/MacOS/claude(?:\s|$)")
+    # claude-code/<version>/claude.app before, claude-code/<version>/<hash>/claude.app since 2.1.3xx
+    r"^/Users/[^/\s]+/Library/Application Support/Claude/claude-code/(?:[^/\s]+/){1,3}claude\.app/Contents/MacOS/claude(?:\s|$)")
 _PROCESS_TOKEN = re.compile(r"(?:^|\s)CLAUDE_CODE_OAUTH_TOKEN=([^\s]+)")
 
 
