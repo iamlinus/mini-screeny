@@ -1,5 +1,5 @@
 # mini screeny – inställningar
-# Ändra och spara: companion-servern läser om filen inom en minut, ingen omstart behövs.
+# Ändra här eller på http://localhost:8740 (companion-servern). Ändringar slår igenom inom en minut.
 
 # Vem skärmen tillhör. Gubben säger "Hej <namn>!". Lämna tomt för bara "Hej!".
 namn = "Sebastian"
@@ -16,7 +16,7 @@ kort = "HIF"
 # Sök: .venv/bin/python -I tools/companion.py --aktie "volvo"
 namn = "Kjell Group"
 # Avanzas id för aktien, om sökordet hittar fel aktie (siffran i adressen på avanza.se). Valfritt.
-# id = 1276742
+id = 1276742
 
 [sidor]
 # Vilka sidor som visas och i vilken ordning (PWR bläddrar). Möjliga: "gubben", "aktie", "claude", "fotboll"

@@ -19,8 +19,10 @@ every 10 s tells the board the Mac is there; without it the board shows "ø".
   companion.py                    run (normally started at login by tools/companion_launchagent.sh)
   companion.py --once             one round, then exit
   companion.py --vp-fixture F     send a VibePulse-shaped JSON file instead of the live quotas
-  companion.py --lag              list the teams that can go in config.toml
+  companion.py --lag              list the teams that can go in config.toml (or use the settings page)
   companion.py --aktie volvo      search Avanza for a stock (name + id for config.toml)
+
+Settings page: http://localhost:8740 (tools/webconfig.py) edits config.toml and shows the status.
 
 Other tools pause it to use the port (see tools/boardport.py): sim.py does that by itself, and
 `tools/sim.py flash` flashes the firmware.
@@ -35,6 +37,7 @@ import quota
 import football
 import stock
 import config
+import webconfig
 
 MAX_LINE = 700        # the board's line buffer is 768 bytes including the tag
 PING_EVERY_S = 10     # keep-alive: the board shows "ø" after 25 s without any line from us
@@ -95,6 +98,8 @@ def fetch_cfg(args):
 class Source:
     def __init__(self, tag, every, fetch, page=None):
         self.tag, self.every, self.fetch, self.page = tag, every, fetch, page
+        self.ok_at = 0.0          # last successful fetch (for the settings page)
+        self.error = ""
         self.line = None        # last good payload, encoded; None = nothing to send
         self.version = 0        # bumped on every fresh line
         self.rounds = 0
@@ -130,6 +135,7 @@ class Source:
                 raise ValueError(f"line too long ({len(body)} bytes)")
             self.line = f"{self.tag} {body}\n".encode()
             self.version += 1
+            self.ok_at, self.error = time.time(), ""
             if self.ok is not True:
                 log(f"{self.tag}: data ok")
             self.ok = True
@@ -137,6 +143,7 @@ class Source:
             if self.ok is not False:
                 log(f"{self.tag}: no data ({e})")
             self.ok = False
+            self.error = str(e)[:80]
             self.line = None    # do not keep feeding old values as if they were fresh
 
 
@@ -254,6 +261,20 @@ def main():
     for src in SOURCES:
         src.start(args)
     board = Board()
+
+    def status():
+        now = time.time()
+        labels = {"claude": "Claude-kvoter", "aktie": "Aktien", "fotboll": "Fotboll"}
+        return {
+            "board": {"connected": board.ser is not None, "port": board.port if board.ser else "",
+                      "paused": bool(bp.pause_holder())},
+            "sources": [{"label": labels[s.page], "enabled": config.page_enabled(s.page), "ok": s.ok,
+                         "age": int(now - s.ok_at) if s.ok_at else None,
+                         "error": "ingen data" if s.ok is False and not s.error else s.error}
+                        for s in SOURCES if s.page],
+        }
+    if not args.once:
+        webconfig.start(status, log)
     sent = {}                   # tag -> version last sent on this connection
     last_tx = 0.0
     waiting_logged = False

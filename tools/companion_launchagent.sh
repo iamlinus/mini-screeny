@@ -49,6 +49,7 @@ EOF
     launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
     launchctl bootstrap "$DOMAIN" "$PLIST"
     echo "installed and started: $LABEL"
+    echo "settings: http://localhost:8740"
     echo "log: $LOG"
     ;;
   uninstall)

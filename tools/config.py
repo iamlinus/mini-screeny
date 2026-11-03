@@ -60,3 +60,43 @@ def _load(log):
 
 def page_enabled(name, cfg=None):
     return name in (cfg or load(lambda m: None))["sidor"]["visa"]
+
+
+def _q(s):
+    """A TOML basic string (JSON string escapes are valid TOML)."""
+    import json
+    return json.dumps(str(s), ensure_ascii=False)
+
+
+def save(namn, lag, kort, aktie, aktie_id, visa):
+    """Write config.toml (the same layout and comments as the hand-written file)."""
+    visa = [p for p in visa if p in PAGES] or list(PAGES)
+    id_line = f"id = {int(aktie_id)}" if aktie_id else "# id = 1276742"
+    text = f'''# mini screeny – inställningar
+# Ändra här eller på http://localhost:8740 (companion-servern). Ändringar slår igenom inom en minut.
+
+# Vem skärmen tillhör. Gubben säger "Hej <namn>!". Lämna tomt för bara "Hej!".
+namn = {_q(namn)}
+
+[fotboll]
+# Laget som visas på fotbollssidan: namn eller förkortning från Allsvenskan eller Superettan,
+# t.ex. "Helsingborgs IF", "HIF", "Malmö FF", "AIK". Lista alla: .venv/bin/python -I tools/companion.py --lag
+lag = {_q(lag)}
+# Kort namn för laget i matchresultatet (valfritt; annars ligans förkortning)
+kort = {_q(kort)}
+
+[aktie]
+# Aktien som visas på aktiesidan: ett sökord hos Avanza, t.ex. "Kjell Group", "Volvo B", "Ericsson B".
+# Sök: .venv/bin/python -I tools/companion.py --aktie "volvo"
+namn = {_q(aktie)}
+# Avanzas id för aktien, om sökordet hittar fel aktie (siffran i adressen på avanza.se). Valfritt.
+{id_line}
+
+[sidor]
+# Vilka sidor som visas och i vilken ordning (PWR bläddrar). Möjliga: "gubben", "aktie", "claude", "fotboll"
+visa = [{", ".join(_q(p) for p in visa)}]
+'''
+    tmp = PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, PATH)   # atomic: the companion never reads half a file

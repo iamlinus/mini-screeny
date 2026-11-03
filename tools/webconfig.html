@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mini screeny</title>
+<style>
+  :root {
+    --bg: #100d16; --card: #1b1724; --surface: #282232; --line: #332c3f;
+    --text: #f5f0eb; --muted: #968ca0; --accent: #d97757; --ink: #201412;
+    --good: #3cdc8c; --bad: #ff555f; --warn: #ffc45a;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.45; }
+  main { max-width: 620px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+  .buddy { width: 44px; height: 32px; background: var(--accent); border-radius: 9px; position: relative; flex: none; }
+  .buddy::before, .buddy::after { content: ""; position: absolute; top: 9px; width: 6px; height: 11px; background: var(--ink); border-radius: 2px; }
+  .buddy::before { left: 12px; } .buddy::after { right: 12px; }
+  h1 { font-size: 22px; margin: 0; font-weight: 700; letter-spacing: .2px; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 20px; margin-bottom: 14px; }
+  h2 { font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], select {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 9px;
+    padding: 10px 12px; font: inherit; outline: none;
+  }
+  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  .row { display: flex; gap: 10px; } .row > * { flex: 1; } .row > .narrow { flex: 0 0 120px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .status { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 12px; align-items: center; font-size: 14px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.good { background: var(--good); } .dot.bad { background: var(--bad); } .dot.off { background: transparent; border: 1.5px solid var(--muted); }
+  .status .when { color: var(--muted); font-size: 13px; text-align: right; }
+  .hits { margin-top: 6px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; display: none; }
+  .hits button { display: block; width: 100%; text-align: left; background: var(--bg); color: var(--text); border: 0;
+                 border-top: 1px solid var(--line); padding: 9px 12px; font: inherit; cursor: pointer; }
+  .hits button:first-child { border-top: 0; }
+  .hits button:hover, .hits button:focus { background: var(--surface); outline: none; }
+  .chosen { margin-top: 8px; font-size: 14px; }
+  .chosen b { font-weight: 600; }
+  .pages { list-style: none; margin: 0; padding: 0; }
+  .pages li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .pages li:first-child { border-top: 0; }
+  .pages li.off span { color: var(--muted); }
+  .pages input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .pages span { flex: 1; }
+  .pages .num { flex: 0 0 18px; color: var(--muted); font-size: 13px; text-align: right; }
+  .iconbtn { background: var(--surface); color: var(--text); border: 0; border-radius: 7px; width: 30px; height: 28px; cursor: pointer; font-size: 14px; }
+  .iconbtn:disabled { opacity: .3; cursor: default; }
+  .save { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
+  .save button { background: var(--accent); color: var(--ink); border: 0; border-radius: 10px; padding: 12px 22px; font: inherit; font-weight: 700; cursor: pointer; }
+  .save button:disabled { opacity: .5; cursor: default; }
+  #msg { font-size: 14px; }
+  #msg.ok { color: var(--good); } #msg.err { color: var(--bad); }
+  @media (max-width: 480px) { .row { flex-direction: column; } .row > .narrow { flex: 1; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="buddy" aria-hidden="true"></div>
+    <div>
+      <h1>mini screeny</h1>
+      <p id="sub">Inställningar för skärmen</p>
+    </div>
+  </header>
+
+  <section>
+    <h2>Status</h2>
+    <div class="status" id="status"><span class="dot"></span><span>Hämtar ...</span><span></span></div>
+  </section>
+
+  <section>
+    <h2>Namn</h2>
+    <label for="namn">Gubben säger "Hej &lt;namn&gt;!"</label>
+    <input type="text" id="namn" maxlength="20" autocomplete="off">
+  </section>
+
+  <section>
+    <h2>Fotboll</h2>
+    <div class="row">
+      <div>
+        <label for="lag">Lag</label>
+        <select id="lag"><option>Hämtar lag ...</option></select>
+      </div>
+      <div class="narrow">
+        <label for="kort">Kort namn</label>
+        <input type="text" id="kort" maxlength="8" autocomplete="off">
+      </div>
+    </div>
+    <div class="hint">Lag i Allsvenskan och Superettan. Kort namn visas i matchresultatet.</div>
+  </section>
+
+  <section>
+    <h2>Aktie</h2>
+    <label for="sok">Sök hos Avanza</label>
+    <input type="text" id="sok" placeholder="t.ex. Volvo, Ericsson, Kjell" autocomplete="off">
+    <div class="hits" id="hits"></div>
+    <div class="chosen" id="chosen"></div>
+  </section>
+
+  <section>
+    <h2>Sidor</h2>
+    <label>Vilka sidor som visas och i vilken ordning PWR-knappen bläddrar</label>
+    <ul class="pages" id="pages"></ul>
+  </section>
+
+  <div class="save">
+    <button id="spara">Spara</button>
+    <span id="msg" role="status"></span>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let pages = [];          // [{id, label, on}]
+let stock = {name: "", id: null};
+let teamsLoaded = false, wantTeam = "";
+
+function ago(sec) {
+  if (sec == null) return "";
+  if (sec < 60) return "nyss";
+  if (sec < 3600) return `för ${Math.round(sec / 60)} min sedan`;
+  return `för ${Math.round(sec / 3600)} h sedan`;
+}
+
+function renderStatus(st) {
+  const rows = [];
+  const b = st.board;
+  rows.push([b.connected ? "good" : "off", b.connected ? "Skärmen är ansluten" : (b.paused ? "Skärmen är lånad av ett verktyg" : "Skärmen är inte ansluten"), b.port || ""]);
+  for (const s of st.sources) {
+    if (!s.enabled) { rows.push(["off", s.label + ": avstängd", ""]); continue; }
+    const cls = s.ok ? "good" : (s.ok === false ? "bad" : "");
+    rows.push([cls, s.label + (s.ok === false && s.error ? ": " + s.error : ""), s.ok ? "uppdaterad " + ago(s.age) : ""]);
+  }
+  $("status").replaceChildren(...rows.flatMap(([cls, text, when]) => {
+    const d = document.createElement("span"); d.className = "dot " + cls;
+    const t = document.createElement("span"); t.textContent = text;
+    const w = document.createElement("span"); w.className = "when"; w.textContent = when;
+    return [d, t, w];
+  }));
+}
+
+function renderPages() {
+  const ul = $("pages");
+  ul.replaceChildren(...pages.map((p, i) => {
+    const li = document.createElement("li"); if (!p.on) li.className = "off";
+    const num = document.createElement("span"); num.className = "num";
+    num.textContent = p.on ? (pages.filter(q => q.on).indexOf(p) + 1) + "." : "";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = p.on; cb.id = "p_" + p.id;
+    cb.setAttribute("aria-label", "Visa " + p.label);
+    cb.onchange = () => { p.on = cb.checked; renderPages(); };
+    const lab = document.createElement("span"); lab.textContent = p.label;
+    const up = document.createElement("button"); up.className = "iconbtn"; up.textContent = "↑"; up.disabled = i === 0;
+    up.setAttribute("aria-label", "Flytta upp " + p.label);
+    up.onclick = () => { [pages[i - 1], pages[i]] = [pages[i], pages[i - 1]]; renderPages(); };
+    const dn = document.createElement("button"); dn.className = "iconbtn"; dn.textContent = "↓"; dn.disabled = i === pages.length - 1;
+    dn.setAttribute("aria-label", "Flytta ner " + p.label);
+    dn.onclick = () => { [pages[i + 1], pages[i]] = [pages[i], pages[i + 1]]; renderPages(); };
+    li.append(num, cb, lab, up, dn);
+    return li;
+  }));
+}
+
+function renderStock() {
+  $("chosen").replaceChildren();
+  if (!stock.name && !stock.id) return;
+  const b = document.createElement("b"); b.textContent = stock.name || "";
+  $("chosen").append("Vald: ", b, stock.id ? ` (id ${stock.id})` : "");
+}
+
+async function loadState(first) {
+  const r = await fetch("/api/state"); const d = await r.json();
+  renderStatus(d.status);
+  if (!first) return;
+  const c = d.config;
+  $("namn").value = c.namn || "";
+  $("kort").value = c.fotboll.kort || "";
+  stock = {name: c.aktie.namn || "", id: c.aktie.id || null}; renderStock();
+  const on = c.sidor.visa;
+  pages = on.map(id => ({id, label: d.pages.find(p => p.id === id).label, on: true}))
+    .concat(d.pages.filter(p => !on.includes(p.id)).map(p => ({id: p.id, label: p.label, on: false})));
+  renderPages();
+  wantTeam = c.fotboll.lag || "";
+  if (teamsLoaded) selectTeam();
+}
+
+function selectTeam() {
+  const sel = $("lag"), w = wantTeam.toLowerCase();
+  for (const o of sel.options) if (o.value.toLowerCase() === w || o.dataset.abbrv.toLowerCase() === w) { sel.value = o.value; return; }
+}
+
+async function loadTeams() {
+  try {
+    const d = await (await fetch("/api/teams")).json();
+    const sel = $("lag"); sel.replaceChildren();
+    const groups = {};
+    for (const t of d.teams) {
+      if (!groups[t.league]) { groups[t.league] = document.createElement("optgroup"); groups[t.league].label = t.league; sel.append(groups[t.league]); }
+      const o = document.createElement("option"); o.value = t.name; o.textContent = t.name; o.dataset.abbrv = t.abbrv;
+      groups[t.league].append(o);
+    }
+    teamsLoaded = true; selectTeam();
+    sel.onchange = () => { $("kort").placeholder = sel.selectedOptions[0]?.dataset.abbrv || ""; };
+    sel.onchange();
+  } catch (e) { $("lag").replaceChildren(new Option("Kunde inte hämta lagen")); }
+}
+
+let sokTimer = null;
+$("sok").addEventListener("input", () => {
+  clearTimeout(sokTimer);
+  const q = $("sok").value.trim();
+  if (q.length < 2) { $("hits").style.display = "none"; return; }
+  sokTimer = setTimeout(async () => {
+    const d = await (await fetch("/api/stocks?q=" + encodeURIComponent(q))).json();
+    const box = $("hits");
+    box.replaceChildren(...(d.hits || []).map(h => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = h.title;
+      b.onclick = () => { stock = {name: h.title.split(" (")[0], id: h.id}; renderStock(); box.style.display = "none"; $("sok").value = ""; };
+      return b;
+    }));
+    box.style.display = (d.hits || []).length ? "block" : "none";
+  }, 300);
+});
+
+$("spara").onclick = async () => {
+  const msg = $("msg"); msg.className = ""; msg.textContent = "Sparar ...";
+  $("spara").disabled = true;
+  try {
+    const body = {
+      namn: $("namn").value.trim(), lag: $("lag").value, kort: $("kort").value.trim(),
+      aktie: stock.name, aktie_id: stock.id, visa: pages.filter(p => p.on).map(p => p.id),
+    };
+    const r = await fetch("/api/config", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Kunde inte spara");
+    msg.className = "ok"; msg.textContent = "Sparat. Skärmen uppdateras om några sekunder.";
+    setTimeout(() => loadState(false), 4000);
+  } catch (e) { msg.className = "err"; msg.textContent = e.message; }
+  $("spara").disabled = false;
+};
+
+loadState(true); loadTeams();
+setInterval(() => loadState(false), 5000);
+</script>
+</body>
+</html>

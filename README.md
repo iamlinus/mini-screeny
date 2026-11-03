@@ -8,8 +8,10 @@ Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduin
 3. **Claude**: dina Claude-kvoter (5-timmarssessionen, veckan och, när Anthropic har en egen veckogräns för en modell, den modellens vecka), lästa direkt på Macen. Streck betyder att värdet saknas.
 4. **Fotboll**: lagets tabellplacering, dagar kvar till nästa match (H = hemma, B = borta) och senaste resultatet (V/O/F). Data från ligornas officiella källa (samma som allsvenskan.se och superettan.se), hämtas vid start och sedan varje timme.
 
-## Inställningar: `config.toml`
-Namn, fotbollslag, aktie och vilka sidor som visas (och i vilken ordning) står i `config.toml` i projektmappen. Spara filen så slår ändringen igenom inom en minut, utan omstart. Kortet minns namn och sidor även när det startas utan Macen.
+## Inställningar
+Öppna **http://localhost:8740** i webbläsaren (när companion-servern körs). Där väljer du namn, fotbollslag (rullista), aktie (sök hos Avanza) och vilka sidor som visas och i vilken ordning, och ser om skärmen är ansluten och hur färsk datan är. Sidan går bara att nå från den egna Macen.
+
+Inställningarna sparas i `config.toml` i projektmappen, som också går att redigera för hand. Spara filen så slår ändringen igenom inom en minut, utan omstart. Kortet minns namn och sidor även när det startas utan Macen.
 - Lag: namn eller förkortning från Allsvenskan/Superettan. Lista: `.venv/bin/python -I tools/companion.py --lag`
 - Aktie: sökord hos Avanza (eller `id`). Sök: `.venv/bin/python -I tools/companion.py --aktie "volvo"`
 
@@ -85,4 +87,4 @@ Lägg till `-DQUIET_BUILD` i `platformio.ini` för att stänga av allt ljud meda
 Serial-kommandon: `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
-`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `football.*` (fotbollssidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).
+`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `football.*` (fotbollssidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/webconfig.*` (inställningssidan), `tools/config.py` (`config.toml`), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).
