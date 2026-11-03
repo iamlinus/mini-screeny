@@ -129,6 +129,22 @@ def parse_usage_limits(body, now_ts):
     return found
 
 
+def hint_for(status):
+    """ClaudeUsage.status -> what the owner should do, in Swedish, for the settings page (<= 80 chars)."""
+    s = status or ""
+    if "no Claude Code login" in s:
+        return "Logga in i Claude Code: kör claude i Terminalen"
+    if "keychain:" in s:
+        return "Nyckelringen nekade: tillåt Claude Code-credentials (Tillåt alltid)"
+    if s.startswith(("token expired", "token rejected")):
+        return "Claude-inloggningen har gått ut: kör claude i Terminalen en gång"
+    if s.startswith("HTTP 429"):
+        return "Anthropic bromsar, försöker igen " + s.rsplit(" ", 1)[-1]
+    if s.startswith(("request failed", "HTTP ")):
+        return "Når inte Anthropic (" + s + ")"
+    return s or "väntar på första hämtningen"
+
+
 class ClaudeUsage:
     def __init__(self, state_path, log):
         self.state_path = Path(state_path)
@@ -169,6 +185,9 @@ class ClaudeUsage:
         status, wait = self._cycle()
         self._set_status(status)
         self.next_at = time.time() + wait
+
+    def hint(self):
+        return hint_for(self.status)
 
     def request_refresh(self):
         """Manual refresh (BOOT double press): probe soon, but at most once a minute; a 429 rest still holds."""

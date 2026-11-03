@@ -73,7 +73,7 @@ def fetch_vibepulse(args):
         _claude.poll()      # rate-limited inside: the usage endpoint is asked every 4 min at most
         payload = _claude.values()
         if not payload:
-            return None
+            raise ValueError(_claude.hint())     # shown on the settings page: what to do about it
     # Only the fields the page draws. Missing stays null: the board shows dashes, never 0.
     sub = {k: payload.get(k) for k in VP_KEYS}
     if isinstance(sub.get("claudeModelWeekLabel"), str):

@@ -60,4 +60,18 @@ for src in s["sources"]:
 '
 open http://localhost:8740
 say "Klart! Inställningarna är öppna i webbläsaren."
-echo "Frågar macOS om Nyckelringen (\"Claude Code-credentials\"): välj Tillåt alltid, det är så Claude-kvoterna läses."
+
+# --- Claude-kvoterna kräver att Claude Code är inloggat i Terminalen ---
+# (utan -w läses bara att posten finns, ingen fråga från Nyckelringen)
+if security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1; then
+  echo "Frågar macOS om Nyckelringen (\"Claude Code-credentials\"): välj Tillåt alltid, det är så Claude-kvoterna läses."
+else
+  echo
+  echo "OBS: Claude Code är inte inloggat i Terminalen, så Claude-kvoterna kan inte läsas."
+  if command -v claude >/dev/null 2>&1; then
+    echo "     Kör  claude  i Terminalen och logga in (/login). Kvoterna dyker upp av sig själva inom en minut."
+  else
+    echo "     Installera Claude Code (https://claude.com/claude-code), kör  claude  i Terminalen och logga in."
+  fi
+  echo "     Inloggningen förnyas när claude körs: används det sällan kan kvoterna försvinna tills du kör claude igen."
+fi
