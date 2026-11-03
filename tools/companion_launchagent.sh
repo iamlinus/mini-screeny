@@ -9,7 +9,7 @@
 # Log: ~/Library/Logs/mini-screeny-companion.log
 set -eu
 
-LABEL="se.linuslogren.mini-screeny.companion"
+LABEL="se.mini-screeny.companion"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/mini-screeny-companion.log"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

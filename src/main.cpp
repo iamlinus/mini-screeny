@@ -1,5 +1,6 @@
 // mini screeny – Waveshare ESP32-S3-LCD-1.69
-// Pages (PWR): Claude buddy -> Kjell stock -> VibePulse -> Helsingborgs IF.  BOOT on buddy page: short = mute, long = recalibrate.
+// Pages (PWR): Claude buddy, stock, Claude quota (VibePulse), football team; which ones and in what
+// order comes from config.toml on the Mac ("cfg" line), stored in NVS.  BOOT on buddy page: short = mute, long = recalibrate.
 // No network on the board: tools/companion.py on the Mac fetches the data and sends it over USB serial.
 #include "board.h"
 #include <nvs_flash.h>
@@ -9,7 +10,9 @@
 #include "sound.h"
 #include "stock.h"
 #include "pulse.h"
-#include "hif.h"
+#include "football.h"
+#include <Preferences.h>
+#include <ArduinoJson.h>
 #include "link.h"
 #include "theme.h"
 
@@ -20,8 +23,31 @@ Arduino_Canvas *canvas = new Arduino_Canvas(PANEL_W, PANEL_H, gfx);
 
 void backlight(uint8_t level) { ledcWrite(LEDC_BL, level); }
 
-enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_HIF, PAGE_COUNT };
+enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_FOOTBALL, PAGE_COUNT };   // numbers = config.PAGES in tools/config.py
 static int page = PAGE_BUDDY;
+
+// ---------------- settings from config.toml (via the companion's "cfg" line), kept in NVS ----------------
+static uint8_t order[PAGE_COUNT] = {PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_FOOTBALL};
+static uint8_t nOrder = PAGE_COUNT;
+static char ownerName[24] = "";
+
+static void settingsLoad() {
+  Preferences p; p.begin("buddy", true);
+  p.getString("name", ownerName, sizeof ownerName);
+  uint8_t o[PAGE_COUNT]; size_t n = p.getBytesLength("pages");
+  if (n >= 1 && n <= PAGE_COUNT && p.getBytes("pages", o, n) == n) {
+    bool ok = true;
+    for (size_t i = 0; i < n; i++) ok &= o[i] < PAGE_COUNT;
+    if (ok) { memcpy(order, o, n); nOrder = n; }
+  }
+  p.end();
+  buddySetName(ownerName);
+}
+
+static int orderIndex(int pg) {
+  for (int i = 0; i < nOrder; i++) if (order[i] == pg) return i;
+  return -1;
+}
 static bool canvasOk = false;
 
 // ---------------- buttons ----------------
@@ -158,9 +184,9 @@ static void drawStockPage() {
   canvas->flush();
 }
 
-static void drawHif() {
+static void drawFootball() {
   if (!canvasOk) return;
-  hifDraw(canvas);
+  footballDraw(canvas);
   canvas->flush();
 }
 
@@ -174,7 +200,7 @@ static void showPage() {
   backlight(255);
   if (page == PAGE_STOCK) drawStockPage();
   else if (page == PAGE_PULSE) drawPulse();
-  else if (page == PAGE_HIF) drawHif();
+  else if (page == PAGE_FOOTBALL) drawFootball();
 }
 
 // ---------------- serial test interface ----------------
@@ -186,7 +212,8 @@ static void showPage() {
 //   page N | dbg | stat | calreset | calguess
 //   vp {json}                       VibePulse quota line from tools/companion.py
 //   stk {json}                      Kjell stock quote (Avanza fields) from tools/companion.py
-//   hif {json}                      Helsingborgs IF table/next/last from tools/companion.py
+//   fb {json}                       football team table/next/last from tools/companion.py
+//   cfg {json}                      {"name": owner, "pages": [page numbers in PWR order]} from config.toml
 //   nvswipe                         erase the NVS partition, keep calibration + mute (one-off cleanup)
 //   ping                            keep-alive from the companion (no reply)
 //   hello                           "ok hello mini-screeny ..." (the board also prints "mini-screeny boot" at start)
@@ -202,13 +229,48 @@ static void renderBuddyFrame() {
   canvas->flush();
 }
 
+// "cfg {json}": owner name + page order. Written to NVS only when something changed (sent every minute).
+static void applyConfig(const char *json) {
+  JsonDocument d;
+  if (deserializeJson(d, json)) { Serial.println("err cfg json"); return; }
+  bool changed = false;
+  const char *name = d["name"] | "";
+  if (strcmp(name, ownerName)) {
+    strlcpy(ownerName, name, sizeof ownerName);
+    changed = true;
+    if (buddySetName(ownerName) && page == PAGE_BUDDY) {
+      char g[40]; snprintf(g, sizeof g, ownerName[0] ? "Hej %s!" : "Hej!", ownerName);
+      buddySay(g, 2.5f, 2);
+    }
+  }
+  JsonArray pa = d["pages"];
+  uint8_t o[PAGE_COUNT]; uint8_t n = 0;
+  for (JsonVariant v : pa) {
+    int pg = v | -1;
+    bool dup = false;
+    for (int i = 0; i < n; i++) dup |= o[i] == pg;
+    if (pg >= 0 && pg < PAGE_COUNT && !dup && n < PAGE_COUNT) o[n++] = pg;
+  }
+  if (n && (n != nOrder || memcmp(o, order, n))) {
+    memcpy(order, o, n); nOrder = n; changed = true;
+    if (orderIndex(page) < 0) { page = order[0]; showPage(); }
+  }
+  if (changed) {
+    Preferences p; p.begin("buddy", false);
+    p.putString("name", ownerName); p.putBytes("pages", order, nOrder);
+    p.end();
+  }
+  Serial.printf("ok cfg name='%s' pages=%d%s\n", ownerName, nOrder, changed ? " (saved)" : "");
+}
+
 static void handleCommand(char *c) {
   if (!strncmp(c, "vp ", 3)) {
     if (pulseFeed(c + 3)) Serial.printf("ok %s\n", pulseDebug()); else Serial.println("err vp json");
   }
-  else if (!strncmp(c, "hif ", 4)) {
-    if (hifFeed(c + 4)) Serial.printf("ok %s\n", hifDebug()); else Serial.println("err hif json");
+  else if (!strncmp(c, "fb ", 3)) {
+    if (footballFeed(c + 3)) Serial.printf("ok %s\n", footballDebug()); else Serial.println("err fb json");
   }
+  else if (!strncmp(c, "cfg ", 4)) applyConfig(c + 4);
   else if (!strncmp(c, "stk ", 4)) {
     if (stockFeed(c + 4)) Serial.printf("ok %s\n", stockDebug()); else Serial.println("err stk json");
   }
@@ -222,7 +284,7 @@ static void handleCommand(char *c) {
     Serial.printf("ok nvswipe deinit=%d erase=%d init=%d cal=%d mute=%d\n", e1, e2, e3, hadCal, m);
   }
   else if (!strcmp(c, "ping")) {}       // companion keep-alive: only marks contact (linkSeen), no reply
-  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse,hif up=%lus\n", millis() / 1000);
+  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse,football up=%lus\n", millis() / 1000);
   else if (!strcmp(c, "vpdbg")) Serial.println(pulseDebug());
   else if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
   else if (!strncmp(c, "sens ", 5)) {
@@ -312,6 +374,8 @@ void setup() {
   soundInit();
   imuBegin();
   if (!frameLoad()) calStart();
+  settingsLoad();
+  page = order[0];
   buddyInit();
   Serial.println("mini-screeny boot");   // tools/companion.py resends its cached data when it sees this
   showPage();
@@ -325,7 +389,7 @@ void loop() {
   if (calStep == 0 || calStep == 1) {
     if (p == 1 || bt == 1) calConfirm();
   } else {
-    if (p == 1) { page = (page + 1) % PAGE_COUNT; sfx::click(); showPage(); }
+    if (p == 1) { int i = orderIndex(page); page = order[(i + 1) % nOrder]; sfx::click(); showPage(); }
     if (page == PAGE_BUDDY && bt == 1) buddyBootShort();
     if (page == PAGE_BUDDY && bt == 2) { calStart(); sfx::click(); }
   }
@@ -333,7 +397,7 @@ void loop() {
 
   if (page == PAGE_STOCK && stockConsumeDirty()) drawStockPage();
   if (page == PAGE_PULSE && pulseWantsDraw()) drawPulse();
-  if (page == PAGE_HIF && hifConsumeDirty()) drawHif();
+  if (page == PAGE_FOOTBALL && footballConsumeDirty()) drawFootball();
 
   if (canvasPage() && canvasOk && !simMode) {
     static uint32_t last = millis();

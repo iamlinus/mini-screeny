@@ -26,7 +26,8 @@ uint16_t rgb(Arduino_GFX *g, float r, float gr, float b) {
 }
 
 // ---------- messages ----------
-const char *const M_IDLE[] = {"Hej Linus!", "Luta på mig!", "Snurra mig!", "Knacka på mig!", "Vänd mig upp och ner!",
+static char greet[32] = "Hej!";   // "Hej <name>!" from config.toml via the companion (buddySetName)
+const char *const M_IDLE[] = {greet, "Luta på mig!", "Snurra mig!", "Knacka på mig!", "Vänd mig upp och ner!",
                               "Jag bor i en ESP32", "Vad bygger vi idag?", "PWR = nästa sida", "Skaka inte... eller?"};
 const char *const M_OUCH[] = {"Aj!", "Oj!", "Bonk!", "Mitt huvud...", "Det där kändes", "Aj aj aj"};
 const char *const M_SLIDE[] = {"Wiii!", "Hoppsan!", "Jag glider!", "Lutar det inte lite?", "Neeej!"};
@@ -186,11 +187,19 @@ void buddyInit() {
     seed = seed * 1103515245 + 12345; s.depth = 1 + (seed >> 16) % 3;
   }
   for (auto &p : parts) p.on = false;
-  say("Hej Linus!", 2.5f, 1);
+  say(greet, 2.5f, 1);
   waveLeft = 2.0f;
 }
 
 void buddySay(const char *msg, float sec, int prio) { say(msg, sec, prio); }
+
+bool buddySetName(const char *name) {
+  char g[sizeof greet];
+  if (name && *name) snprintf(g, sizeof g, "Hej %s!", name); else strcpy(g, "Hej!");
+  if (!strcmp(g, greet)) return false;
+  strcpy(greet, g);
+  return true;
+}
 bool buddyAsleep() { return asleep; }
 
 void buddyBootShort() {

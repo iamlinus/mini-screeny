@@ -5,7 +5,7 @@
   sim.py shot out.png [raw]               dump the current frame as seen in the mount (raw = unrotated panel)
   sim.py scenario NAME                    run a scripted scenario, writes tools/out/NAME_*.png + contact sheet
   sim.py pulse                            VibePulse page with test payloads -> tools/out/pulse_sheet.png
-  sim.py hif                              Helsingborgs IF page with test payloads -> tools/out/hif_sheet.png
+  sim.py fb                               football page with test payloads -> tools/out/fb_sheet.png
   sim.py flash                            build + flash the firmware (pauses the companion meanwhile)
 
 If tools/companion.py is running it is paused automatically while sim.py holds the port.
@@ -218,35 +218,35 @@ PULSE_CASES = [
 ]
 
 
-# Helsingborgs IF page (page 3)
-HIF_CASES = [
-    ("borta-förlust", {"table": {"pos": 11, "of": 16, "league": "Superettan", "pts": 32, "gp": 29},
+# Football page (page 3)
+FB_CASES = [
+    ("borta-förlust", {"me": "HIF", "table": {"pos": 11, "of": 16, "league": "Superettan", "pts": 32, "gp": 29},
                        "last": {"opp": "Öster", "home": False, "gf": 0, "ga": 3, "date": "2 nov"},
                        "next": {"opp": "Falkenberg", "home": True, "days": 4, "when": "lör 7 nov 15:00"}}),
-    ("idag-vinst", {"table": {"pos": 3, "of": 16, "league": "Allsvenskan", "pts": 51, "gp": 25},
+    ("idag-vinst", {"me": "HIF", "table": {"pos": 3, "of": 16, "league": "Allsvenskan", "pts": 51, "gp": 25},
                     "last": {"opp": "Malmö", "home": True, "gf": 2, "ga": 1, "date": "28 sep"},
                     "next": {"opp": "Djurgården", "home": False, "days": 0, "when": "sön 5 okt 17:30"}}),
-    ("imorgon-oavgjort", {"table": {"pos": 1, "of": 16, "league": "Superettan", "pts": 65, "gp": 29},
+    ("imorgon-oavgjort", {"me": "HIF", "table": {"pos": 1, "of": 16, "league": "Superettan", "pts": 65, "gp": 29},
                           "last": {"opp": "Nordic United", "home": False, "gf": 1, "ga": 1, "date": "12 okt"},
                           "next": {"opp": "Ljungskile", "home": True, "days": 1, "when": "lör 18 okt 13:00"}}),
-    ("säsong slut", {"table": {"pos": 11, "of": 16, "league": "Superettan", "pts": 35, "gp": 30},
+    ("säsong slut", {"me": "HIF", "table": {"pos": 11, "of": 16, "league": "Superettan", "pts": 35, "gp": 30},
                      "last": {"opp": "Falkenberg", "home": True, "gf": 2, "ga": 0, "date": "7 nov"}}),
 ]
 
 
-def run_hif():
+def run_fb():
     import json
     os.makedirs(OUT, exist_ok=True)
     s = open_port()
     print(cmd(s, "page 3"))
     paths, labels = [], []
-    for name, payload in HIF_CASES:
-        print(name, cmd(s, "hif " + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)))
+    for name, payload in FB_CASES:
+        print(name, cmd(s, "fb " + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)))
         time.sleep(0.4)
-        p = os.path.join(OUT, f"hif_{name}.png")
+        p = os.path.join(OUT, f"fb_{name}.png")
         shot(s, p)
         paths.append(p); labels.append(name)
-    out = contact(paths, labels, os.path.join(OUT, "hif_sheet.png"), cols=2)
+    out = contact(paths, labels, os.path.join(OUT, "fb_sheet.png"), cols=2)
     print("sheet:", out)
 
 
@@ -304,8 +304,8 @@ if __name__ == "__main__":
             run_scenario(n)
     elif what == "pulse":
         run_pulse()
-    elif what == "hif":
-        run_hif()
+    elif what == "fb":
+        run_fb()
     elif what == "flash":
         pause_companion()
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -1,26 +1,27 @@
-#include "hif.h"
+#include "football.h"
 #include "board.h"
 #include "link.h"
 #include "theme.h"
 #include <ArduinoJson.h>
 
 struct Match { bool has = false, home = false; char opp[20] = ""; int gf = 0, ga = 0, days = 0; char when[24] = "", date[12] = ""; };
-struct HifData {
-  bool hasTable = false; int pos = 0, of = 0, pts = 0, gp = 0; char league[16] = "";
+struct TeamData {
+  bool hasTable = false; int pos = 0, of = 0, pts = 0, gp = 0; char league[16] = "", me[10] = "";
   Match next, last;
   bool any = false; uint32_t rxMs = 0;
 };
-static HifData H;
+static TeamData H;
 static bool dirty = true;
 static int lastMark = -1;
 static const uint32_t OLD_MS = 3UL * 3600 * 1000;   // fetched hourly: red after 3 h without new data
 
 static LinkState mark() { return linkState(H.any, millis() - H.rxMs, OLD_MS); }
 
-bool hifFeed(const char *json) {
+bool footballFeed(const char *json) {
   JsonDocument d;
   if (deserializeJson(d, json) || !d.is<JsonObject>()) return false;
-  HifData n;
+  TeamData n;
+  strlcpy(n.me, d["me"] | "", sizeof n.me);
   JsonObject t = d["table"];
   if (!t.isNull() && t["pos"].is<int>()) {
     n.hasTable = true; n.pos = t["pos"]; n.of = t["of"] | 0; n.pts = t["pts"] | 0; n.gp = t["gp"] | 0;
@@ -42,16 +43,16 @@ bool hifFeed(const char *json) {
   return true;
 }
 
-bool hifConsumeDirty() {
+bool footballConsumeDirty() {
   int m = mark();
   bool d = dirty || m != lastMark;
   dirty = false; lastMark = m;
   return d;
 }
 
-const char *hifDebug() {
+const char *footballDebug() {
   static char b[128];
-  snprintf(b, sizeof b, "hif any=%d pos=%d next=%s %dd last=%d-%d %s", H.any, H.pos, H.next.opp, H.next.days, H.last.gf, H.last.ga, H.last.opp);
+  snprintf(b, sizeof b, "fb any=%d %s pos=%d next=%s %dd last=%d-%d %s", H.any, H.me, H.pos, H.next.opp, H.next.days, H.last.gf, H.last.ga, H.last.opp);
   return b;
 }
 
@@ -76,7 +77,7 @@ static int tag(Arduino_GFX *g, int x, int y, const char *s, uint16_t fg, uint16_
 }
 
 // Landscape 280 x 240: table position (left) and next match (right) on top, last result underneath.
-void hifDraw(Arduino_GFX *g) {
+void footballDraw(Arduino_GFX *g) {
   using namespace theme;
   g->fillScreen(BG);
   drawLinkMark(g, SCREEN_W - 24, 22, mark());
@@ -137,8 +138,8 @@ void hifDraw(Arduino_GFX *g) {
     bool win = m.gf > m.ga, draw = m.gf == m.ga;
     tag(g, L, 202, win ? "V" : draw ? "O" : "F", win ? GOOD : draw ? WARN : BAD, win ? GOOD_BG : draw ? WARN_BG : BAD_BG);
     char ln[48];   // home team first, as in every table
-    if (m.home) snprintf(ln, sizeof ln, "HIF  %d - %d  %s", m.gf, m.ga, m.opp);
-    else snprintf(ln, sizeof ln, "%s  %d - %d  HIF", m.opp, m.ga, m.gf);
+    if (m.home) snprintf(ln, sizeof ln, "%s  %d - %d  %s", H.me, m.gf, m.ga, m.opp);
+    else snprintf(ln, sizeof ln, "%s  %d - %d  %s", m.opp, m.ga, m.gf, H.me);
     g->setFont(u8g2_font_helvB12_tf); g->setTextColor(TEXT);
     g->setCursor(L + 34, 202); g->print(ln);
     g->setFont(u8g2_font_helvR08_tf); g->setTextColor(MUTED);

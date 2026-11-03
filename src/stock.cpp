@@ -4,19 +4,19 @@
 #include "theme.h"
 #include <ArduinoJson.h>
 
-// Kjell Group quote. The board has no network of its own: tools/companion.py on the Mac fetches
-// Avanza's public quote (orderbook 1276742) and sends the raw fields over USB as "stk {json}".
+// The stock in config.toml. The board has no network of its own: tools/companion.py on the Mac fetches
+// Avanza's quote and sends the raw fields plus name/ticker/market/currency over USB as "stk {json}".
 
 struct StockData {
   char priceI[8], priceD[4], chgAbs[12], chgPct[12], volume[16], bidAsk[24], lows[20], highs[20];
+  char name[24], sub[36], cur[6];
   float price, low, high;
   bool down, any;
   uint32_t rxMs;
 };
 
-// Start values = closing quote fetched 2026-11-01 (shown grey until the companion sends data)
-static StockData D = {"19", "00", "-0,50", "-2,56%", "75 763", "19,00 / 19,20", "Lägst 19,00", "Högst 19,30",
-                      19.00f, 19.00f, 19.30f, true, false, 0};
+// Nothing until the companion has sent a quote (the page says so)
+static StockData D = {};
 static bool dirty = false;
 static int lastMark = -1;
 
@@ -54,6 +54,9 @@ bool stockFeed(const char *json) {
   snprintf(n.lows, sizeof n.lows, "Lägst %s", lo); snprintf(n.highs, sizeof n.highs, "Högst %s", hi);
   fmt2(d["buy"] | 0.0f, b, sizeof b); fmt2(d["sell"] | 0.0f, s, sizeof s);
   snprintf(n.bidAsk, sizeof n.bidAsk, "%s / %s", b, s);
+  strlcpy(n.name, d["name"] | "", sizeof n.name);
+  strlcpy(n.sub, d["sub"] | "", sizeof n.sub);
+  strlcpy(n.cur, d["cur"] | "", sizeof n.cur);
   n.any = true; n.rxMs = millis();
   D = n;
   dirty = true;
@@ -100,22 +103,27 @@ void drawStock(Arduino_GFX *g) {
   const int W = SCREEN_W, cx = W / 2, L = 34, R = W - 34;
 
   g->fillScreen(BG);
+  drawLinkMark(g, W - 30, 31, mark());
+  if (!d.any) {   // nothing from the companion yet
+    g->setFont(u8g2_font_helvR10_tf); g->setTextColor(MUTED);
+    centerText(g, "Väntar på datorn ...", cx, SCREEN_H / 2 + 4);
+    return;
+  }
   g->setFont(u8g2_font_helvB14_tf);
   g->setTextColor(TEXT);
-  centerText(g, "KJELL GROUP", cx, 36);
+  centerText(g, d.name, cx, 36);
   g->setFont(u8g2_font_helvR08_tf);
   g->setTextColor(MUTED);
-  centerText(g, "KJELL  ·  Nasdaq First North", cx, 53);
-  drawLinkMark(g, W - 30, 31, mark());
+  centerText(g, d.sub, cx, 53);
 
-  // price with "SEK" after it, centred as one group
+  // price with the currency after it, centred as one group
   g->setFont(u8g2_font_logisoso50_tn);
   // place by ink boxes (x1 = left bearing), otherwise the digits overlap and hide the decimal point
   int16_t xi, xd, xs, y1; uint16_t wi, hi, wd, hd, ws, hs;
   g->getTextBounds(d.priceI, 0, 0, &xi, &y1, &wi, &hi);
   g->getTextBounds(d.priceD, 0, 0, &xd, &y1, &wd, &hd);
   g->setFont(u8g2_font_helvR10_tf);
-  g->getTextBounds("SEK", 0, 0, &xs, &y1, &ws, &hs);
+  g->getTextBounds(d.cur, 0, 0, &xs, &y1, &ws, &hs);
   const int dot = 14, gap = 8, baseY = 118;
   int x0 = cx - (int)(wi + dot + wd + gap + ws) / 2;
   g->setFont(u8g2_font_logisoso50_tn);
@@ -125,7 +133,7 @@ void drawStock(Arduino_GFX *g) {
   g->setCursor(x0 + wi + dot - xd, baseY); g->print(d.priceD);
   g->setFont(u8g2_font_helvR10_tf);
   g->setTextColor(MUTED);
-  g->setCursor(x0 + wi + dot + wd + gap - xs, baseY); g->print("SEK");
+  g->setCursor(x0 + wi + dot + wd + gap - xs, baseY); g->print(d.cur);
 
   const int pw = 150, ph = 28, px = cx - pw / 2, py = 130;
   g->fillRoundRect(px, py, pw, ph, 14, TREND_BG);

@@ -1,0 +1,23 @@
+# mini screeny – inställningar
+# Ändra och spara: companion-servern läser om filen inom en minut, ingen omstart behövs.
+
+# Vem skärmen tillhör. Gubben säger "Hej <namn>!". Lämna tomt för bara "Hej!".
+namn = "Sebastian"
+
+[fotboll]
+# Laget som visas på fotbollssidan: namn eller förkortning från Allsvenskan eller Superettan,
+# t.ex. "Helsingborgs IF", "HIF", "Malmö FF", "AIK". Lista alla: .venv/bin/python -I tools/companion.py --lag
+lag = "Helsingborgs IF"
+# Kort namn för laget i matchresultatet (valfritt; annars ligans förkortning)
+kort = "HIF"
+
+[aktie]
+# Aktien som visas på aktiesidan: ett sökord hos Avanza, t.ex. "Kjell Group", "Volvo B", "Ericsson B".
+# Sök: .venv/bin/python -I tools/companion.py --aktie "volvo"
+namn = "Kjell Group"
+# Avanzas id för aktien, om sökordet hittar fel aktie (siffran i adressen på avanza.se). Valfritt.
+# id = 1276742
+
+[sidor]
+# Vilka sidor som visas och i vilken ordning (PWR bläddrar). Möjliga: "gubben", "aktie", "claude", "fotboll"
+visa = ["gubben", "aktie", "claude", "fotboll"]

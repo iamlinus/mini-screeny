@@ -3,15 +3,17 @@
 Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduino via PlatformIO.
 
 ## Sidor (PWR byter sida)
-1. **Claude-gubben**: en interaktiv figur som styrs av rörelsesensorn
-2. **Kjell Group-aktien**: livekurs från Avanza varje minut
-3. **VibePulse**: dina Claude-kvoter (5-timmarssessionen, veckan och, när Anthropic har en egen veckogräns för en modell, den modellens vecka), lästa direkt på Macen. Streck betyder att värdet saknas.
-4. **Helsingborgs IF**: tabellplacering, dagar kvar till nästa match (H = hemma, B = borta) och senaste resultatet (V/O/F). Data från ligornas officiella källa (samma som superettan.se), hämtas vid start och sedan varje timme.
+1. **Gubben**: en interaktiv figur som styrs av rörelsesensorn och hälsar med ditt namn
+2. **Aktien**: livekurs från Avanza varje minut
+3. **Claude**: dina Claude-kvoter (5-timmarssessionen, veckan och, när Anthropic har en egen veckogräns för en modell, den modellens vecka), lästa direkt på Macen. Streck betyder att värdet saknas.
+4. **Fotboll**: lagets tabellplacering, dagar kvar till nästa match (H = hemma, B = borta) och senaste resultatet (V/O/F). Data från ligornas officiella källa (samma som allsvenskan.se och superettan.se), hämtas vid start och sedan varje timme.
 
-## Orientering
-Skärmen sitter monterad liggande: panelens högra kant (sett med standardorienteringen 240×280) är golvet. Alla sidor ritas därför på en canvas som roteras med `MOUNT_ROT` i `src/board.h` (3 just nu) och är 280×240 px. Sensorvärdena roteras på samma sätt, så "ner" i koden är golvet i monteringen. Monterar du om kortet räcker det att ändra `MOUNT_ROT` (0–3). Kalibreringen sparas i panelens axlar och behöver inte göras om.
+## Inställningar: `config.toml`
+Namn, fotbollslag, aktie och vilka sidor som visas (och i vilken ordning) står i `config.toml` i projektmappen. Spara filen så slår ändringen igenom inom en minut, utan omstart. Kortet minns namn och sidor även när det startas utan Macen.
+- Lag: namn eller förkortning från Allsvenskan/Superettan. Lista: `.venv/bin/python -I tools/companion.py --lag`
+- Aktie: sökord hos Avanza (eller `id`). Sök: `.venv/bin/python -I tools/companion.py --aktie "volvo"`
 
-Uppe till höger på datasidorna: **grön prick** = färsk data, **röd prick** = datan är för gammal (5 minuter, för HIF 3 timmar) (Macen svarar men får inte fram ny data), **ø** = ingen kontakt med Macen (companion-servern skickar ett livstecken var 10:e sekund).
+Uppe till höger på datasidorna: **grön prick** = färsk data, **röd prick** = datan är för gammal (5 minuter, för fotbollen 3 timmar) (Macen svarar men får inte fram ny data), **ø** = ingen kontakt med Macen (companion-servern skickar ett livstecken var 10:e sekund).
 
 ## Companion-servern på Macen
 Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara det som Macen skickar. `tools/companion.py` körs i bakgrunden, håller USB-porten och skickar en rad per datakälla:
@@ -19,8 +21,9 @@ Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara 
 | Rad | Källa | Hur ofta |
 |---|---|---|
 | `vp {json}` | Claude-kvoter, lästa på Macen (`tools/quota.py`) | 30 s (Claude frågas högst var 4:e min) |
-| `stk {json}` | Avanzas publika kurs för Kjell Group | 60 s |
-| `hif {json}` | Helsingborgs IF från `gql.sportomedia.se` (`tools/football.py`) | vid start, sedan 1 h |
+| `cfg {json}` | namn och sidordning från `config.toml` | 60 s och när filen ändras |
+| `stk {json}` | aktien i `config.toml`, från Avanza (`tools/stock.py`) | 60 s |
+| `fb {json}` | laget i `config.toml`, från `gql.sportomedia.se` (`tools/football.py`) | vid start, sedan 1 h |
 
 Senaste data skickas om varje varv, och allt skickas direkt när kortet startar om (det skriver `mini-screeny boot`). Om en källa inte svarar skickas inget. Kortet behåller då de senaste värdena och pricken blir grå.
 
@@ -79,7 +82,7 @@ Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 ```
 Lägg till `-DQUIET_BUILD` i `platformio.ini` för att stänga av allt ljud medan du utvecklar.
 
-Serial-kommandon: `vp {json}`, `stk {json}`, `hif {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
+Serial-kommandon: `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
-`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `hif.*` (HIF-sidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).
+`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `football.*` (fotbollssidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).

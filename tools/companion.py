@@ -4,9 +4,12 @@
 The board has no network. This process holds its USB serial port and sends one line per data
 source, "<tag> {json}". Every source runs in its own thread, so a slow fetch never holds up the port.
 
+  cfg  name + page order from config.toml (the board stores them), every 60 s and when the file changes
   vp   Claude quota windows, read on this Mac (tools/quota.py, adapted from VibePulse), every 30 s
-  stk  Kjell Group quote from Avanza's public quote endpoint, every 60 s
-  hif  Helsingborgs IF table position, next match, last result (tools/football.py), at start + hourly
+  stk  the stock in config.toml, Avanza's public endpoints (tools/stock.py), every 60 s
+  fb   the football team in config.toml: table, next match, last result (tools/football.py), at start + hourly
+
+Sources whose page is switched off in config.toml fetch nothing.
 
 Each fresh result is sent once; everything is sent again on (re)connect and when the board prints
 "mini-screeny boot", so a rebooted board is filled within a second. A source that fails sends
@@ -16,6 +19,8 @@ every 10 s tells the board the Mac is there; without it the board shows "ø".
   companion.py                    run (normally started at login by tools/companion_launchagent.sh)
   companion.py --once             one round, then exit
   companion.py --vp-fixture F     send a VibePulse-shaped JSON file instead of the live quotas
+  companion.py --lag              list the teams that can go in config.toml
+  companion.py --aktie volvo      search Avanza for a stock (name + id for config.toml)
 
 Other tools pause it to use the port (see tools/boardport.py): sim.py does that by itself, and
 `tools/sim.py flash` flashes the firmware.
@@ -28,6 +33,8 @@ import serial
 import boardport as bp
 import quota
 import football
+import stock
+import config
 
 MAX_LINE = 700        # the board's line buffer is 768 bytes including the tag
 PING_EVERY_S = 10     # keep-alive: the board shows "ø" after 25 s without any line from us
@@ -70,20 +77,24 @@ def fetch_vibepulse(args):
     return sub
 
 
-STOCK_KEYS = ["last", "change", "changePercent", "highest", "lowest", "totalVolumeTraded", "buy", "sell"]
-
-
 def fetch_stock(args):
-    # Avanza's public quote for Kjell Group (orderbook 1276742); it wants a browser-like User-Agent.
-    q = get_json("https://www.avanza.se/_api/market-guide/stock/1276742/quote", headers={"User-Agent": "Mozilla/5.0"})
-    if not isinstance(q.get("last"), (int, float)):
-        raise ValueError("no 'last' in quote")
-    return {k: q.get(k) for k in STOCK_KEYS}
+    c = config.load(log)["aktie"]
+    return stock.fetch(c.get("namn") or "Kjell Group", c.get("id"))
+
+
+def fetch_football(args):
+    c = config.load(log)["fotboll"]
+    return football.fetch(c.get("lag") or "HIF", c.get("kort") or "")
+
+
+def fetch_cfg(args):
+    c = config.load(log)
+    return {"name": str(c.get("namn") or "")[:20], "pages": [config.PAGES[p] for p in c["sidor"]["visa"]]}
 
 
 class Source:
-    def __init__(self, tag, every, fetch):
-        self.tag, self.every, self.fetch = tag, every, fetch
+    def __init__(self, tag, every, fetch, page=None):
+        self.tag, self.every, self.fetch, self.page = tag, every, fetch, page
         self.line = None        # last good payload, encoded; None = nothing to send
         self.version = 0        # bumped on every fresh line
         self.rounds = 0
@@ -95,9 +106,19 @@ class Source:
     def _loop(self, args):
         while True:
             t0 = time.time()
+            if self.page and not config.page_enabled(self.page):
+                self.line, self.ok = None, None        # page switched off: fetch nothing
+                self.rounds += 1
+                time.sleep(15)
+                continue
             self.refresh(args)
             self.rounds += 1
-            time.sleep(max(1.0, self.every - (time.time() - t0)))
+            # sleep, but wake early when config.toml changes (new team/stock/name takes effect at once)
+            seen = config.load(log)
+            while time.time() - t0 < self.every:
+                time.sleep(min(5.0, max(1.0, self.every - (time.time() - t0))))
+                if config.load(log) is not seen:
+                    break
 
     def refresh(self, args):
         try:
@@ -120,9 +141,10 @@ class Source:
 
 
 SOURCES = [
-    Source("vp", 30, fetch_vibepulse),
-    Source("stk", 60, fetch_stock),
-    Source("hif", 3600, lambda args: football.fetch()),   # at start, then hourly
+    Source("cfg", 60, fetch_cfg),
+    Source("vp", 30, fetch_vibepulse, page="claude"),
+    Source("stk", 60, fetch_stock, page="aktie"),
+    Source("fb", 3600, fetch_football, page="fotboll"),   # at start, then hourly
 ]
 
 
@@ -215,7 +237,17 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--once", action="store_true", help="one round, then exit")
     ap.add_argument("--vp-fixture", help="VibePulse-shaped JSON file to send instead of the live quotas")
+    ap.add_argument("--lag", action="store_true", help="list the teams for config.toml")
+    ap.add_argument("--aktie", metavar="SÖKORD", help="search Avanza for a stock for config.toml")
     args = ap.parse_args()
+    if args.lag:
+        for abbrv, name, league in football.teams():
+            print(f"{abbrv:7s} {name:22s} {league}")
+        return
+    if args.aktie:
+        for oid, title in stock.search(args.aktie):
+            print(f"{oid:>9}  {title}")
+        return
 
     lock_fd = acquire_single_instance()
     log(f"companion started (pid {os.getpid()})")
