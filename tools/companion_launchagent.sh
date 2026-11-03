@@ -1,8 +1,7 @@
 #!/bin/sh
 # Start tools/companion.py at login (macOS LaunchAgent), restart it if it stops.
 #
-#   tools/companion_launchagent.sh install     install + start (run again after moving the repo; it saves
-#                                              your shell's PATH so `codex` and `node` are found)
+#   tools/companion_launchagent.sh install     install + start (run again after moving the repo)
 #   tools/companion_launchagent.sh uninstall   stop + remove
 #   tools/companion_launchagent.sh status      is it running? + last log lines
 #   tools/companion_launchagent.sh restart     after changing companion.py

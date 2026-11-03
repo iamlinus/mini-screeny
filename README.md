@@ -5,7 +5,7 @@ Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduin
 ## Sidor (PWR byter sida)
 1. **Claude-gubben**: en interaktiv figur som styrs av rörelsesensorn
 2. **Kjell Group-aktien**: livekurs från Avanza varje minut (grön prick = live, grå = inget på 3 min)
-3. **VibePulse**: dina Claude-kvoter (session, vecka, modellvecka) och Codex-veckan, lästa direkt på Macen (grön prick = färsk data, grå = inget på 2 min). Streck betyder att värdet saknas.
+3. **VibePulse**: dina Claude-kvoter (5-timmarssessionen, veckan och, när Anthropic har en egen veckogräns för en modell, den modellens vecka), lästa direkt på Macen (grön prick = färsk data, grå = inget på 2 min). Streck betyder att värdet saknas.
 
 ## Orientering
 Skärmen sitter monterad liggande: panelens högra kant (sett med standardorienteringen 240×280) är golvet. Alla sidor ritas därför på en canvas som roteras med `MOUNT_ROT` i `src/board.h` (3 just nu) och är 280×240 px. Sensorvärdena roteras på samma sätt, så "ner" i koden är golvet i monteringen. Monterar du om kortet räcker det att ändra `MOUNT_ROT` (0–3). Kalibreringen sparas i panelens axlar och behöver inte göras om.
@@ -15,7 +15,7 @@ Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara 
 
 | Rad | Källa | Hur ofta |
 |---|---|---|
-| `vp {json}` | Claude- och Codex-kvoter, lästa på Macen (`tools/quota.py`) | 30 s (Claude frågas högst var 4:e min) |
+| `vp {json}` | Claude-kvoter, lästa på Macen (`tools/quota.py`) | 30 s (Claude frågas högst var 4:e min) |
 | `stk {json}` | Avanzas publika kurs för Kjell Group | 60 s |
 
 Senaste data skickas om varje varv, och allt skickas direkt när kortet startar om (det skriver `mini-screeny boot`). Om en källa inte svarar skickas inget. Kortet behåller då de senaste värdena och pricken blir grå.
@@ -31,7 +31,6 @@ Logg: `~/Library/Logs/mini-screeny-companion.log`. Kör den manuellt med `.venv/
 
 **Kvoterna** (`tools/quota.py`) är lånade från [VibePulse](https://github.com/niclasvestlund-YT/vibepulse) av Niclas Vestlund (MIT, se `tools/LICENSE.vibepulse`). Ingen VibePulse-server behövs:
 - **Claude**: Claude Codes inloggning (Claude Desktop eller Nyckelringens "Claude Code-credentials") används mot Anthropics usage-anrop, som bara läser. Det görs högst var 4:e minut, med paus på minst 10 minuter om API:et svarar 429, eftersom kvoten delas med Claude Code. Frågar macOS om Nyckelringen, välj *Tillåt alltid*. Tokenen loggas aldrig.
-- **Codex**: `codex app-server` (samma siffror som Codex visar), med `~/.codex/sessions` som reserv. Saknas Codex visas streck.
 
 **Ny datakälla**: skriv en funktion som returnerar en dict, lägg till den i `SOURCES` i `companion.py` och lägg till ett serial-kommando för taggen i firmwaren (som `stk` i `main.cpp`).
 

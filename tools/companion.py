@@ -4,7 +4,7 @@
 The board has no network. This process holds its USB serial port and sends one line per data
 source, "<tag> {json}". Every source runs in its own thread, so a slow fetch never holds up the port.
 
-  vp   Claude + Codex quota windows, read on this Mac (tools/quota.py, adapted from VibePulse), every 30 s
+  vp   Claude quota windows, read on this Mac (tools/quota.py, adapted from VibePulse), every 30 s
   stk  Kjell Group quote from Avanza's public quote endpoint, every 60 s
 
 Each fresh result is sent once; everything is sent again on (re)connect and when the board prints
@@ -45,11 +45,8 @@ VP_KEYS = [
     "claudeSessionPct", "claudeSessionResetMin",
     "claudeWeekPct", "claudeWeekResetMin",
     "claudeModelWeekPct", "claudeModelWeekResetMin", "claudeModelWeekLabel",
-    "codexSessionPct", "codexSessionResetMin",
-    "codexWeekPct", "codexWeekResetMin",
 ]
 _claude = quota.ClaudeUsage(os.path.join(bp.OUT, ".claude_probe_state.json"), log)
-_codex = quota.CodexUsage(log)
 
 
 def fetch_vibepulse(args):
@@ -58,8 +55,7 @@ def fetch_vibepulse(args):
             payload = json.load(f)
     else:
         _claude.poll()      # rate-limited inside: the usage endpoint is asked every 4 min at most
-        _codex.poll()       # every 60 s
-        payload = {**_claude.values(), **_codex.values()}
+        payload = _claude.values()
         if not payload:
             return None
     # Only the fields the page draws. Missing stays null: the board shows dashes, never 0.

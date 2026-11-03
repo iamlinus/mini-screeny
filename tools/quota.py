@@ -1,7 +1,7 @@
-"""Claude and Codex quota windows, read on this Mac: the data behind the VibePulse page.
+"""Claude quota windows, read on this Mac: the data behind the VibePulse page.
 
 Adapted from VibePulse's tokenserver (https://github.com/niclasvestlund-YT/vibepulse,
-tools/tokenserver/tokenserver.py, codex_rollout.py, codex_command.py at 468f952).
+tools/tokenserver/tokenserver.py at 468f952).
 MIT License, Copyright (c) 2026 Niclas Vestlund; see tools/LICENSE.vibepulse.
 Only the quota part is taken: no HTTP server, no history, no header probe (that one sends a real
 model request and costs tokens).
@@ -12,12 +12,9 @@ endpoint https://api.anthropic.com/api/oauth/usage. That bucket is shared with C
 so the probe runs every 4 min at most, backs off on failures, rests >= 10 min after a 429 (also
 across restarts) and never resends a token that got 401/403. Tokens are never logged.
 
-Codex: `codex app-server` answers account/rateLimits/read (the same numbers the Codex UI shows);
-if that fails, the newest rate_limits event in ~/.codex/sessions rollouts is used.
-
 Values carry their absolute reset time, so "resets in" is recomputed whenever a line is sent.
 """
-import json, math, os, queue, re, shutil, subprocess, threading, time, urllib.error, urllib.request
+import json, math, re, subprocess, time, urllib.error, urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -27,7 +24,7 @@ LIMITS_EVERY_S = 240          # VibePulse's cadence: ~15 calls/h on a bucket sha
 AUTH_RECHECK_S = 15           # no usable token: only reread the local stores, no upstream call
 REST_429_S = 600
 CLAUDE_MAX_AGE_S = 30 * 60    # older than this: show dashes rather than old numbers
-MODEL_LABELS = {"fable": "FABLE · WEEK", "opus": "OPUS · WEEK", "sonnet": "SONNET · WEEK"}
+MODEL_LABELS = {"fable": "FABLE · VECKA", "opus": "OPUS · VECKA", "sonnet": "SONNET · VECKA"}
 
 _DESKTOP_PROCESS = re.compile(
     r"^/Users/[^/\s]+/Library/Application Support/Claude/claude-code/[^/\s]+/claude\.app/Contents/MacOS/claude(?:\s|$)")
@@ -233,223 +230,4 @@ class ClaudeUsage:
                 out[f"{prefix}ResetMin"] = max(0, int(round((v[1] - now) / 60)))
         if "claudeModelWeekPct" in out:
             out["claudeModelWeekLabel"] = self.found.get("modelLabel")
-        return out
-
-
-# ---------------- Codex ----------------
-CODEX_EVERY_S = 60
-CODEX_WEEK_MINUTES = 10080
-CODEX_SCAN_BYTES = 1024 * 1024
-
-
-def codex_executable():
-    exe = shutil.which("codex") or shutil.which("codex", path=os.pathsep.join(
-        ["/opt/homebrew/bin", "/usr/local/bin", os.path.expanduser("~/.local/bin")]))
-    if exe:
-        return exe
-    for c in ("/opt/homebrew/bin/codex", "/usr/local/bin/codex",
-              "/Applications/ChatGPT.app/Contents/Resources/codex", "/Applications/Codex.app/Contents/Resources/codex"):
-        if os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    return None
-
-
-def _codex_window(win, now_ts):
-    """{used_percent, window_minutes, resets_at} -> (pct, reset_at, window_minutes) or None."""
-    if not isinstance(win, dict):
-        return None
-    pct, reset_at, minutes = win.get("used_percent"), win.get("resets_at"), win.get("window_minutes")
-    for v in (pct, reset_at, minutes):
-        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
-            return None
-    if not 0 <= pct <= 100 or reset_at <= now_ts:
-        return None
-    return round(float(pct), 1), int(reset_at), minutes
-
-
-def codex_from_rate_limits(rl, now_ts):
-    """A rate_limits snapshot -> {"week": (pct, reset_at), "session": (pct, reset_at)} (either may be missing)."""
-    out = {}
-    if not isinstance(rl, dict):
-        return out
-    name = rl.get("limit_name")
-    general = name is None or name == ""          # a named limit is a different pool, not the general week
-    for key in ("primary", "secondary"):
-        w = _codex_window(rl.get(key), now_ts)
-        if not w:
-            continue
-        if w[2] == CODEX_WEEK_MINUTES and general and "week" not in out:
-            out["week"] = (w[0], w[1])
-        elif w[2] <= 600 and "session" not in out:
-            out["session"] = (w[0], w[1])
-    return out
-
-
-def _camel(win):
-    if not isinstance(win, dict):
-        return None
-    return {"used_percent": win.get("usedPercent"), "window_minutes": win.get("windowDurationMins"),
-            "resets_at": win.get("resetsAt")}
-
-
-def codex_app_server_limits(timeout_s=15):
-    """Ask `codex app-server` for account/rateLimits/read (JSON-RPC over stdio)."""
-    exe = codex_executable()
-    if not exe:
-        return {}
-    proc = None
-    try:
-        # `codex` is often a Node script (#!/usr/bin/env node); under launchd PATH lacks Homebrew/nvm.
-        env = dict(os.environ)
-        env["PATH"] = os.pathsep.join([os.path.dirname(os.path.realpath(exe)), os.path.dirname(exe),
-                                       "/opt/homebrew/bin", "/usr/local/bin", env.get("PATH", "/usr/bin:/bin")])
-        proc = subprocess.Popen([exe, "app-server", "--listen", "stdio://"], stdin=subprocess.PIPE, env=env,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
-        lines = queue.Queue()
-
-        def pump():
-            try:
-                for ln in proc.stdout:
-                    lines.put(ln)
-            except (OSError, ValueError):
-                pass
-            finally:
-                lines.put(None)
-        threading.Thread(target=pump, daemon=True).start()
-
-        def send(msg):
-            proc.stdin.write(json.dumps(msg) + "\n")
-            proc.stdin.flush()
-
-        send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "mini-screeny", "version": "1"}, "capabilities": {}}})
-        deadline, asked = time.monotonic() + timeout_s, False
-        while time.monotonic() < deadline:
-            try:
-                ln = lines.get(timeout=0.25)
-            except queue.Empty:
-                if proc.poll() is not None:
-                    break
-                continue
-            if ln is None:
-                break
-            try:
-                msg = json.loads(ln)
-            except json.JSONDecodeError:
-                continue
-            if msg.get("id") == 1 and not asked:
-                send({"method": "initialized", "params": {}})
-                send({"id": 2, "method": "account/rateLimits/read"})
-                asked = True
-            elif msg.get("id") == 2:
-                body = msg.get("result") or {}
-                buckets = body.get("rateLimitsByLimitId")
-                rl = buckets.get("codex") if isinstance(buckets, dict) else None
-                if not isinstance(rl, dict):
-                    rl = body.get("rateLimits")
-                if not isinstance(rl, dict):
-                    return {}
-                return codex_from_rate_limits({"limit_name": rl.get("limitName"), "primary": _camel(rl.get("primary")),
-                                               "secondary": _camel(rl.get("secondary"))}, time.time())
-    except (OSError, ValueError):
-        return {}
-    finally:
-        if proc is not None:
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait(timeout=1)
-            for pipe in (proc.stdin, proc.stdout):
-                try:
-                    pipe.close()
-                except (OSError, AttributeError):
-                    pass
-    return {}
-
-
-def _rollout_rate_limits(obj):
-    """Only Codex's own token_count event envelope counts (not quoted or nested copies)."""
-    if not isinstance(obj, dict) or obj.get("type") != "event_msg":
-        return None
-    p = obj.get("payload")
-    if not isinstance(p, dict) or p.get("type") != "token_count":
-        return None
-    rl = p.get("rate_limits")
-    return rl if isinstance(rl, dict) else None
-
-
-def _observed_at(value):
-    try:
-        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-
-def codex_scan_rollouts(now_ts=None):
-    """Fallback: the newest rate_limits event in the 20 most recent rollout files (tail only)."""
-    now_ts = now_ts or time.time()
-    home = os.environ.get("CODEX_HOME")
-    sessions = (Path(home).expanduser() if home else Path.home() / ".codex") / "sessions"
-    try:
-        files = sorted(sessions.glob("**/rollout-*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:20]
-    except OSError:
-        return {}
-    best = {}   # key -> (observed_at, value)
-    for path in files:
-        try:
-            with path.open("rb") as f:
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                f.seek(max(0, size - CODEX_SCAN_BYTES))
-                tail = f.read().split(b"\n")
-        except OSError:
-            continue
-        for raw in reversed(tail):
-            if b'"rate_limits"' not in raw:
-                continue
-            try:
-                ev = json.loads(raw)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
-            rl, at = _rollout_rate_limits(ev), _observed_at(ev.get("timestamp") if isinstance(ev, dict) else None)
-            if rl is None or at is None:
-                continue
-            for k, v in codex_from_rate_limits(rl, now_ts).items():
-                if k not in best or at > best[k][0]:
-                    best[k] = (at, v)
-            break   # newest event in this file is enough
-    return {k: v for k, (_at, v) in best.items()}
-
-
-class CodexUsage:
-    def __init__(self, log):
-        self.log = log
-        self.found = {}
-        self.next_at = 0.0
-        self.status = None
-
-    def poll(self):
-        if time.time() < self.next_at:
-            return
-        self.next_at = time.time() + CODEX_EVERY_S
-        found, src = codex_app_server_limits(), "codex app-server"
-        if not found:
-            found, src = codex_scan_rollouts(), "codex session logs"
-        status = f"ok via {src}" if found else ("no codex installed" if not codex_executable() else "no data")
-        if found:
-            self.found = found
-        if status != self.status:
-            self.log(f"codex quota: {status}")
-            self.status = status
-
-    def values(self):
-        now = time.time()
-        out = {}
-        for key, prefix in (("session", "codexSession"), ("week", "codexWeek")):
-            v = self.found.get(key)
-            if v and v[1] > now:
-                out[f"{prefix}Pct"] = v[0]
-                out[f"{prefix}ResetMin"] = max(0, int(round((v[1] - now) / 60)))
         return out

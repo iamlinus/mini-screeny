@@ -10,7 +10,7 @@ struct Quota {
 };
 
 struct PulseData {
-  Quota cSess, cWeek, cModel, xSess, xWeek;
+  Quota cSess, cWeek, cModel;
   char modelLabel[24] = "";
   uint32_t rxMs = 0;
   bool any = false;   // at least one payload received since boot
@@ -36,8 +36,6 @@ bool pulseFeed(const char *json) {
   readQuota(d, "claudeSessionPct", "claudeSessionResetMin", n.cSess);
   readQuota(d, "claudeWeekPct", "claudeWeekResetMin", n.cWeek);
   readQuota(d, "claudeModelWeekPct", "claudeModelWeekResetMin", n.cModel);
-  readQuota(d, "codexSessionPct", "codexSessionResetMin", n.xSess);
-  readQuota(d, "codexWeekPct", "codexWeekResetMin", n.xWeek);
   const char *lbl = d["claudeModelWeekLabel"] | "";
   strlcpy(n.modelLabel, lbl, sizeof n.modelLabel);
   n.rxMs = millis();
@@ -106,26 +104,10 @@ static void fmtDuration(long m, char *out, size_t n) {
   else snprintf(out, n, "%ld min", m);
 }
 
-// One weekly window in the right-hand column: label + percent, bar, time to reset under it.
+// One weekly window in the right-hand column: label, bar, then "om <time to reset>" + percentage.
 static void barRow(Arduino_GFX *g, int x0, int x1, int y, const char *label, const Quota &q, uint16_t track, uint16_t text, uint16_t muted) {
-  char right[8];
-  if (q.has) snprintf(right, sizeof right, "%d%%", (int)q.pct);  // floor: 99.6 is not "100"
-  else strcpy(right, "--");
-  int16_t bx1, by1; uint16_t rw, rh, lw, lh;
-  g->setFont(u8g2_font_helvB10_tf);
-  g->getTextBounds(right, 0, 0, &bx1, &by1, &rw, &rh);
-  g->setTextColor(q.has ? text : muted);
-  rightText(g, right, x1, y + 1);
-  // label, shortened if it would run into the percentage
-  char lbl[28]; strlcpy(lbl, label, sizeof lbl);
   g->setFont(u8g2_font_helvR08_tf); g->setTextColor(muted);
-  for (size_t n = strlen(lbl); n > 0; n--) {
-    g->getTextBounds(lbl, 0, 0, &bx1, &by1, &lw, &lh);
-    if (x0 + bx1 + lw <= x1 - rw - 6) break;
-    lbl[n - 1] = 0;
-    while (n > 1 && (lbl[n - 2] & 0xC0) == 0xC0) lbl[--n - 1] = 0;   // do not leave half a UTF-8 character
-  }
-  g->setCursor(x0, y); g->print(lbl);
+  g->setCursor(x0, y); g->print(label);
   const int by = y + 6;
   g->fillRoundRect(x0, by, x1 - x0, 5, 2, track);
   if (q.has && q.pct > 0) g->fillRoundRect(x0, by, max(5, (int)((x1 - x0) * q.pct / 100)), 5, 2, levelColor(g, q.pct));
@@ -133,13 +115,18 @@ static void barRow(Arduino_GFX *g, int x0, int x1, int y, const char *label, con
     char dur[16], ln[24];
     fmtDuration(minutesLeft(q), dur, sizeof dur);
     snprintf(ln, sizeof ln, "om %s", dur);
-    g->setFont(u8g2_font_helvR08_tf); g->setTextColor(muted);
-    g->setCursor(x0, by + 18); g->print(ln);
+    g->setCursor(x0, by + 20); g->print(ln);
   }
+  char right[8];
+  if (q.has) snprintf(right, sizeof right, "%d%%", (int)q.pct);  // floor: 99.6 is not "100"
+  else strcpy(right, "--");
+  g->setFont(u8g2_font_helvB10_tf); g->setTextColor(q.has ? text : muted);
+  rightText(g, right, x1, by + 21);
 }
 
 // Landscape layout for the mounted screen (SCREEN_W x SCREEN_H = 280 x 240):
-// session ring on the left, the three weekly windows on the right, status line along the bottom.
+// session ring on the left, the weekly windows on the right, status line along the bottom.
+// The per-model week only exists while Anthropic runs a separate weekly cap for a model; no row then.
 void pulseDraw(Arduino_GFX *g) {
   const uint16_t BG = C(16, 13, 22), TRACK = C(40, 34, 50), TEXT = C(245, 240, 235), MUTED = C(150, 140, 160);
   const uint16_t LIVE_COL = C(60, 220, 140), OFF_COL = C(90, 96, 110);
@@ -147,12 +134,10 @@ void pulseDraw(Arduino_GFX *g) {
   bool stale = !P.any || now - P.rxMs > STALE_MS;
 
   g->fillScreen(BG);
-  g->setFont(u8g2_font_helvB10_tf); g->setTextColor(TEXT);
-  g->setCursor(24, 32); g->print("VIBEPULSE");
-  g->fillCircle(SCREEN_W - 26, 28, 4, stale ? OFF_COL : LIVE_COL);
+  g->fillCircle(SCREEN_W - 26, 26, 4, stale ? OFF_COL : LIVE_COL);
 
   // Session ring (Claude 5 h window)
-  const int cx = 80, cy = 116, ro = 58, ri = 47;
+  const int cx = 82, cy = 104, ro = 64, ri = 52;
   g->fillArc(cx, cy, ro, ri, 0, 360, TRACK);
   const Quota &s = P.cSess;
   if (s.has) ring(g, cx, cy, ro, ri, s.pct * 3.6f, levelColor(g, s.pct));
@@ -165,15 +150,16 @@ void pulseDraw(Arduino_GFX *g) {
   g->setCursor(bx, cy + 12); g->print(big);
   if (s.has) { g->setFont(u8g2_font_helvB12_tf); g->setCursor(bx + w + 2, cy + 12); g->print("%"); }
   g->setFont(u8g2_font_helvR08_tf); g->setTextColor(MUTED);
-  centerText(g, "SESSION", cx, cy + 28);
+  centerText(g, "SESSION", cx, cy + 30);
 
-  // Weekly windows
-  char lbl[28];
-  strlcpy(lbl, P.modelLabel[0] ? P.modelLabel : "MODELL · VECKA", sizeof lbl);
-  const int c0 = 150, c1 = SCREEN_W - 18;
-  barRow(g, c0, c1, 66, "VECKA", P.cWeek, TRACK, TEXT, MUTED);
-  barRow(g, c0, c1, 114, lbl, P.cModel, TRACK, TEXT, MUTED);
-  barRow(g, c0, c1, 162, "CODEX · VECKA", P.xWeek, TRACK, TEXT, MUTED);
+  // Weekly windows, centred on the ring
+  const int c0 = 154, c1 = SCREEN_W - 16;
+  if (P.cModel.has) {
+    barRow(g, c0, c1, cy - 32, "VECKA", P.cWeek, TRACK, TEXT, MUTED);
+    barRow(g, c0, c1, cy + 22, P.modelLabel[0] ? P.modelLabel : "MODELL · VECKA", P.cModel, TRACK, TEXT, MUTED);
+  } else {
+    barRow(g, c0, c1, cy - 10, "VECKA", P.cWeek, TRACK, TEXT, MUTED);
+  }
 
   // Status line along the bottom
   char line[40];
@@ -186,5 +172,5 @@ void pulseDraw(Arduino_GFX *g) {
     snprintf(line, sizeof line, "Sessionen nollställs om %s", dur);
   } else line[0] = 0;
   g->setFont(u8g2_font_helvR10_tf); g->setTextColor(stale && P.any ? C(255, 196, 90) : MUTED);
-  centerText(g, line, SCREEN_W / 2, 214);
+  centerText(g, line, SCREEN_W / 2, 210);
 }

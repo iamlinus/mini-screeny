@@ -208,16 +208,12 @@ SCENARIOS = {k[3:]: v for k, v in globals().items() if k.startswith("sc_")}
 
 # VibePulse page (page 2): fixed payloads in the /api/tokens v2 shape, no tokenserver needed.
 PULSE_CASES = [
-    ("full", {"claudeSessionPct": 21.0, "claudeSessionResetMin": 256, "claudeWeekPct": 47.0, "claudeWeekResetMin": 9120,
-              "claudeModelWeekPct": 73.0, "claudeModelWeekResetMin": 3120, "claudeModelWeekLabel": "FABLE · WEEK",
-              "codexSessionPct": None, "codexSessionResetMin": None, "codexWeekPct": 35.0, "codexWeekResetMin": 2317}),
+    ("no model", {"claudeSessionPct": 14.0, "claudeSessionResetMin": 123, "claudeWeekPct": 10.0, "claudeWeekResetMin": 6853}),
+    ("model", {"claudeSessionPct": 21.0, "claudeSessionResetMin": 256, "claudeWeekPct": 47.0, "claudeWeekResetMin": 9120,
+               "claudeModelWeekPct": 73.0, "claudeModelWeekResetMin": 3120, "claudeModelWeekLabel": "FABLE · VECKA"}),
     ("high", {"claudeSessionPct": 94.0, "claudeSessionResetMin": 38, "claudeWeekPct": 81.0, "claudeWeekResetMin": 1500,
-              "claudeModelWeekPct": 99.6, "claudeModelWeekResetMin": 700, "claudeModelWeekLabel": "FABLE · WEEK",
-              "codexWeekPct": None}),
-    ("quarter", {"claudeSessionPct": 25.0, "claudeSessionResetMin": 75, "claudeWeekPct": 12.0, "claudeWeekResetMin": 6000,
-                 "claudeModelWeekPct": 0.0, "claudeModelWeekResetMin": 6000, "claudeModelWeekLabel": "FABLE · WEEK"}),
-    ("missing", {"claudeSessionPct": None, "claudeWeekPct": None, "claudeModelWeekPct": None, "claudeModelWeekLabel": None,
-                 "codexWeekPct": None}),
+              "claudeModelWeekPct": 99.6, "claudeModelWeekResetMin": 700, "claudeModelWeekLabel": "FABLE · VECKA"}),
+    ("missing", {"claudeSessionPct": None, "claudeWeekPct": None, "claudeModelWeekPct": None}),
 ]
 
 
