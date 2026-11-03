@@ -1,6 +1,7 @@
 #include "stock.h"
 #include "board.h"
 #include "link.h"
+#include "theme.h"
 #include <ArduinoJson.h>
 
 // Kjell Group quote. The board has no network of its own: tools/companion.py on the Mac fetches
@@ -75,7 +76,6 @@ const char *stockDebug() {
   return b;
 }
 
-#define C(r_, g_, b_) g->color565(r_, g_, b_)
 static void centerText(Arduino_GFX *g, const char *s, int cx, int y) {
   int16_t x1, y1; uint16_t w, h;
   g->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
@@ -93,9 +93,10 @@ static void rightText(Arduino_GFX *g, const char *s, int rx, int y) {
 void drawStock(Arduino_GFX *g) {
   const StockData &d = D;
 
-  const uint16_t BG = C(8, 10, 16), CARD = C(22, 26, 38), TEXT = C(245, 247, 250), MUTED = C(130, 140, 160);
-  const uint16_t TREND = d.down ? C(255, 85, 95) : C(60, 220, 140);
-  const uint16_t TREND_BG = d.down ? C(60, 18, 26) : C(14, 56, 40);
+  using namespace theme;
+  const uint16_t CARD = SURFACE;
+  const uint16_t TREND = d.down ? BAD : GOOD;
+  const uint16_t TREND_BG = d.down ? BAD_BG : GOOD_BG;
   const int W = SCREEN_W, cx = W / 2, L = 34, R = W - 34;
 
   g->fillScreen(BG);

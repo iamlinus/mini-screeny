@@ -1,5 +1,5 @@
 // mini screeny – Waveshare ESP32-S3-LCD-1.69
-// Pages (PWR): Claude buddy -> Kjell stock -> VibePulse.  BOOT on buddy page: short = mute, long = recalibrate.
+// Pages (PWR): Claude buddy -> Kjell stock -> VibePulse -> Helsingborgs IF.  BOOT on buddy page: short = mute, long = recalibrate.
 // No network on the board: tools/companion.py on the Mac fetches the data and sends it over USB serial.
 #include "board.h"
 #include <nvs_flash.h>
@@ -9,7 +9,9 @@
 #include "sound.h"
 #include "stock.h"
 #include "pulse.h"
+#include "hif.h"
 #include "link.h"
+#include "theme.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_CLK, LCD_DIN, GFX_NOT_DEFINED);
 Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0, true, PANEL_W, PANEL_H, 0, 20, 0, 20);
@@ -18,7 +20,7 @@ Arduino_Canvas *canvas = new Arduino_Canvas(PANEL_W, PANEL_H, gfx);
 
 void backlight(uint8_t level) { ledcWrite(LEDC_BL, level); }
 
-enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_COUNT };
+enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_HIF, PAGE_COUNT };
 static int page = PAGE_BUDDY;
 static bool canvasOk = false;
 
@@ -108,8 +110,7 @@ static void centerOn(Arduino_GFX *g, const char *s, int y) {
 }
 
 static void calDraw(Arduino_GFX *g) {
-  const uint16_t C_BG = g->color565(16, 13, 22), C_TEXT = g->color565(245, 240, 235), C_MUTED = g->color565(150, 140, 160);
-  const uint16_t C_ORANGE = g->color565(217, 119, 87), C_INK = g->color565(32, 20, 18);
+  const uint16_t C_BG = theme::BG, C_TEXT = theme::TEXT, C_MUTED = theme::MUTED, C_ORANGE = theme::ACCENT, C_INK = theme::INK;
   g->fillScreen(C_BG);
   uint32_t ms = millis();
   if (calStep == 2) {
@@ -157,6 +158,12 @@ static void drawStockPage() {
   canvas->flush();
 }
 
+static void drawHif() {
+  if (!canvasOk) return;
+  hifDraw(canvas);
+  canvas->flush();
+}
+
 static void drawPulse() {
   if (!canvasOk) return;
   pulseDraw(canvas);
@@ -167,6 +174,7 @@ static void showPage() {
   backlight(255);
   if (page == PAGE_STOCK) drawStockPage();
   else if (page == PAGE_PULSE) drawPulse();
+  else if (page == PAGE_HIF) drawHif();
 }
 
 // ---------------- serial test interface ----------------
@@ -178,6 +186,7 @@ static void showPage() {
 //   page N | dbg | stat | calreset | calguess
 //   vp {json}                       VibePulse quota line from tools/companion.py
 //   stk {json}                      Kjell stock quote (Avanza fields) from tools/companion.py
+//   hif {json}                      Helsingborgs IF table/next/last from tools/companion.py
 //   nvswipe                         erase the NVS partition, keep calibration + mute (one-off cleanup)
 //   ping                            keep-alive from the companion (no reply)
 //   hello                           "ok hello mini-screeny ..." (the board also prints "mini-screeny boot" at start)
@@ -197,6 +206,9 @@ static void handleCommand(char *c) {
   if (!strncmp(c, "vp ", 3)) {
     if (pulseFeed(c + 3)) Serial.printf("ok %s\n", pulseDebug()); else Serial.println("err vp json");
   }
+  else if (!strncmp(c, "hif ", 4)) {
+    if (hifFeed(c + 4)) Serial.printf("ok %s\n", hifDebug()); else Serial.println("err hif json");
+  }
   else if (!strncmp(c, "stk ", 4)) {
     if (stockFeed(c + 4)) Serial.printf("ok %s\n", stockDebug()); else Serial.println("err stk json");
   }
@@ -210,7 +222,7 @@ static void handleCommand(char *c) {
     Serial.printf("ok nvswipe deinit=%d erase=%d init=%d cal=%d mute=%d\n", e1, e2, e3, hadCal, m);
   }
   else if (!strcmp(c, "ping")) {}       // companion keep-alive: only marks contact (linkSeen), no reply
-  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse up=%lus\n", millis() / 1000);
+  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse,hif up=%lus\n", millis() / 1000);
   else if (!strcmp(c, "vpdbg")) Serial.println(pulseDebug());
   else if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
   else if (!strncmp(c, "sens ", 5)) {
@@ -294,6 +306,7 @@ void setup() {
   canvasOk = canvas->begin(GFX_SKIP_OUTPUT_BEGIN);
   canvas->setRotation(MOUNT_ROT);
   canvas->setUTF8Print(true);
+  canvas->setTextWrap(false);   // a long name is clipped at the edge instead of wrapping onto a new line
   Serial.printf("canvas=%d heap=%u maxblk=%u\n", canvasOk, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
   soundInit();
@@ -320,6 +333,7 @@ void loop() {
 
   if (page == PAGE_STOCK && stockConsumeDirty()) drawStockPage();
   if (page == PAGE_PULSE && pulseWantsDraw()) drawPulse();
+  if (page == PAGE_HIF && hifConsumeDirty()) drawHif();
 
   if (canvasPage() && canvasOk && !simMode) {
     static uint32_t last = millis();

@@ -1,6 +1,7 @@
 #include "pulse.h"
 #include "board.h"
 #include "link.h"
+#include "theme.h"
 #include <ArduinoJson.h>
 
 // One quota window. Missing or null in the payload = unknown, drawn as dashes, never as 0.
@@ -63,14 +64,13 @@ const char *pulseDebug() {
 }
 
 // ---------------- drawing ----------------
-#define C(r_, g_, b_) g->color565(r_, g_, b_)
 
 static LinkState mark() { return linkState(P.any, P.ageAtRxMs + (millis() - P.rxMs)); }
 
 static uint16_t levelColor(Arduino_GFX *g, float pct) {
-  if (pct >= 90) return C(255, 85, 95);
-  if (pct >= 70) return C(255, 196, 90);
-  return C(217, 119, 87);   // Claude orange
+  if (pct >= 90) return theme::BAD;
+  if (pct >= 70) return theme::WARN;
+  return theme::ACCENT;
 }
 
 static void centerText(Arduino_GFX *g, const char *s, int cx, int y) {
@@ -135,7 +135,8 @@ static void barRow(Arduino_GFX *g, int x0, int x1, int y, const char *label, con
 // centred on top with its reset time inside, the week bar(s) underneath. The per-model week only
 // exists while Anthropic runs a separate weekly cap for a model; then the two bars sit side by side.
 void pulseDraw(Arduino_GFX *g) {
-  const uint16_t BG = C(16, 13, 22), TRACK = C(40, 34, 50), TEXT = C(245, 240, 235), MUTED = C(150, 140, 160);
+  using namespace theme;
+  const uint16_t TRACK = SURFACE;
 
   g->fillScreen(BG);
   drawLinkMark(g, SCREEN_W - 24, 22, mark());

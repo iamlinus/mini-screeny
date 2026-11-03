@@ -1,5 +1,6 @@
 // Interactive orange buddy. Physics in screen pixels; gravity and motion come from Sensors.
 #include "buddy.h"
+#include "theme.h"
 #include "board.h"
 #include "sound.h"
 #include <math.h>
@@ -575,7 +576,7 @@ static void drawBubble(Arduino_GFX *g, uint16_t ink, uint16_t paper) {
 }
 
 void buddyDraw(Arduino_GFX *g) {
-  const uint16_t BG = rgb(g, 16, 13, 22);
+  const uint16_t BG = theme::BG;
   g->fillScreen(BG);
 
   // parallax stars: shift against gravity for depth

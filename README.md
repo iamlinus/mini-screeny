@@ -6,11 +6,12 @@ Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduin
 1. **Claude-gubben**: en interaktiv figur som styrs av rörelsesensorn
 2. **Kjell Group-aktien**: livekurs från Avanza varje minut
 3. **VibePulse**: dina Claude-kvoter (5-timmarssessionen, veckan och, när Anthropic har en egen veckogräns för en modell, den modellens vecka), lästa direkt på Macen. Streck betyder att värdet saknas.
+4. **Helsingborgs IF**: tabellplacering, dagar kvar till nästa match (H = hemma, B = borta) och senaste resultatet (V/O/F). Data från ligornas officiella källa (samma som superettan.se), hämtas vid start och sedan varje timme.
 
 ## Orientering
 Skärmen sitter monterad liggande: panelens högra kant (sett med standardorienteringen 240×280) är golvet. Alla sidor ritas därför på en canvas som roteras med `MOUNT_ROT` i `src/board.h` (3 just nu) och är 280×240 px. Sensorvärdena roteras på samma sätt, så "ner" i koden är golvet i monteringen. Monterar du om kortet räcker det att ändra `MOUNT_ROT` (0–3). Kalibreringen sparas i panelens axlar och behöver inte göras om.
 
-Uppe till höger på datasidorna: **grön prick** = färsk data, **röd prick** = datan är äldre än 5 minuter (Macen svarar men får inte fram ny data), **ø** = ingen kontakt med Macen (companion-servern skickar ett livstecken var 10:e sekund).
+Uppe till höger på datasidorna: **grön prick** = färsk data, **röd prick** = datan är för gammal (5 minuter, för HIF 3 timmar) (Macen svarar men får inte fram ny data), **ø** = ingen kontakt med Macen (companion-servern skickar ett livstecken var 10:e sekund).
 
 ## Companion-servern på Macen
 Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara det som Macen skickar. `tools/companion.py` körs i bakgrunden, håller USB-porten och skickar en rad per datakälla:
@@ -19,6 +20,7 @@ Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara 
 |---|---|---|
 | `vp {json}` | Claude-kvoter, lästa på Macen (`tools/quota.py`) | 30 s (Claude frågas högst var 4:e min) |
 | `stk {json}` | Avanzas publika kurs för Kjell Group | 60 s |
+| `hif {json}` | Helsingborgs IF från `gql.sportomedia.se` (`tools/football.py`) | vid start, sedan 1 h |
 
 Senaste data skickas om varje varv, och allt skickas direkt när kortet startar om (det skriver `mini-screeny boot`). Om en källa inte svarar skickas inget. Kortet behåller då de senaste värdena och pricken blir grå.
 
@@ -77,7 +79,7 @@ Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 ```
 Lägg till `-DQUIET_BUILD` i `platformio.ini` för att stänga av allt ljud medan du utvecklar.
 
-Serial-kommandon: `vp {json}`, `stk {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
+Serial-kommandon: `vp {json}`, `stk {json}`, `hif {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
-`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).
+`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `hif.*` (HIF-sidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).

@@ -6,6 +6,7 @@ source, "<tag> {json}". Every source runs in its own thread, so a slow fetch nev
 
   vp   Claude quota windows, read on this Mac (tools/quota.py, adapted from VibePulse), every 30 s
   stk  Kjell Group quote from Avanza's public quote endpoint, every 60 s
+  hif  Helsingborgs IF table position, next match, last result (tools/football.py), at start + hourly
 
 Each fresh result is sent once; everything is sent again on (re)connect and when the board prints
 "mini-screeny boot", so a rebooted board is filled within a second. A source that fails sends
@@ -26,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import serial
 import boardport as bp
 import quota
+import football
 
 MAX_LINE = 700        # the board's line buffer is 768 bytes including the tag
 PING_EVERY_S = 10     # keep-alive: the board shows "ø" after 25 s without any line from us
@@ -120,6 +122,7 @@ class Source:
 SOURCES = [
     Source("vp", 30, fetch_vibepulse),
     Source("stk", 60, fetch_stock),
+    Source("hif", 3600, lambda args: football.fetch()),   # at start, then hourly
 ]
 
 
