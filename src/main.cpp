@@ -456,6 +456,12 @@ void loop() {
   }
   if (calStep == 2 && millis() - calDoneAt > 1800) { calStep = -1; buddySay("Nu kör vi!", 2, 3); }
 
+  // a quota reset or passed 90 %: Clawd says it on his page, a toast says it on the others
+  if (const char *a = pulseTakeAlert()) {
+    Serial.printf("alert %s\n", a);
+    if (page == PAGE_BUDDY) buddyAlert(a, 6);
+    else toast(a, 5000);
+  }
   if (toastShown && millis() >= toastUntil) { toastShown = false; if (page != PAGE_BUDDY) showPage(); }
   if (page == PAGE_STOCK && stockConsumeDirty()) drawStockPage();
   if (page == PAGE_PULSE && pulseWantsDraw()) drawPulse();

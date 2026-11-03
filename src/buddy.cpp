@@ -59,6 +59,7 @@ bool grounded = false; float groundT = 0, airT = 0;
 float gnx = 0, gny = -1;                  // normal of the supporting wall
 float gdx = 0, gdy = 1, gmag = 1;         // effective gravity direction
 float sayLeft = 0; char sayBuf[48] = ""; int sayPrio = 0;
+float alertHold = 0;   // an alert is showing: no yawning, no falling asleep
 float chatIn = 6;
 float wanderIn = 4, wanderGoal = -1, walkPhase = 0, walkSpeed = 0;
 float waveLeft = 0;
@@ -210,6 +211,12 @@ static void wake(bool loud) {
   if (loud) sfx::chirp();
 }
 
+void buddyAlert(const char *msg, float sec) {
+  wake(false);                 // no sound: alerts are for the eyes only
+  say(msg, sec, 9);
+  alertHold = sec;
+}
+
 void buddyUpdate(const Sensors &s, float dt) {
   dt = clampf(dt, 0.001f, 0.05f);
   t += dt;
@@ -294,8 +301,10 @@ void buddyUpdate(const Sensors &s, float dt) {
 
   // sleep after a long still period (only while calm)
   bool calm = dizzy < 0.2f && shake < 0.2f && anger < 0.3f && screamLeft <= 0;
-  if (!asleep && calm && grounded && s.stillSec > 22 && !yawned) { yawned = true; say("*gäsp*", 2.5f, 1); sfx::yawn(); yawnLeft = 1.6f; }
-  if (!asleep && calm && grounded && s.stillSec > 27) { asleep = true; sayLeft = 0; }
+  alertHold -= dt;
+  if (alertHold > 0) yawned = true;   // skip the yawn that would come right after
+  if (!asleep && alertHold <= 0 && calm && grounded && s.stillSec > 22 && !yawned) { yawned = true; say("*gäsp*", 2.5f, 1); sfx::yawn(); yawnLeft = 1.6f; }
+  if (!asleep && alertHold <= 0 && calm && grounded && s.stillSec > 27) { asleep = true; sayLeft = 0; }
   if (asleep && (moving || s.jerk > 0.12f)) wake(true);
   if (!asleep && s.stillSec < 1) yawned = false;
 

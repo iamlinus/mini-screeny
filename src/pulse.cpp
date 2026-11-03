@@ -30,6 +30,46 @@ static void readQuota(JsonDocument &d, const char *pctKey, const char *resetKey,
   q.resetMin = q.hasReset ? (long)r.as<float>() : 0;
 }
 
+// ---------------- alerts: Clawd says when a window resets or passes 90 % ----------------
+// Only known-to-known changes count: a quota going missing (stale data, the Fable row hidden at 0 %)
+// or coming back is never a reset or a crossing.
+static char alertMsg[40] = "";
+static int alertRank = 0;
+
+static void raiseAlert(const char *msg, int rank) {
+  if (rank <= alertRank) return;
+  strlcpy(alertMsg, msg, sizeof alertMsg);
+  alertRank = rank;
+}
+
+// rank: reset beats 90 %, session beats week beats model
+static void watch(const Quota &was, const Quota &now, const char *resetMsg, const char *who, int rank) {
+  if (!was.has || !now.has) return;
+  char m[40];
+  if (now.pct < was.pct - 0.5f) raiseAlert(resetMsg, 10 + rank);   // usage never falls inside a window
+  else if (was.pct < 90 && now.pct >= 90) {
+    snprintf(m, sizeof m, "%s på %d %%!", who, (int)now.pct);
+    raiseAlert(m, rank);
+  }
+}
+
+static void watchQuotas(const PulseData &was, const PulseData &now) {
+  watch(was.cSess, now.cSess, "Ny session, full kvot!", "Sessionen", 3);
+  watch(was.cWeek, now.cWeek, "Ny vecka, full kvot!", "Veckan", 2);
+  // per-model week: "FABLE · VECKA" -> "Fable-veckan"
+  char who[24] = "Modellen", name[16] = "";
+  for (int i = 0; now.modelLabel[i] && now.modelLabel[i] != ' ' && i < (int)sizeof name - 1; i++)
+    name[i] = i ? tolower(now.modelLabel[i]) : now.modelLabel[i], name[i + 1] = 0;
+  if (name[0]) snprintf(who, sizeof who, "%s-veckan", name);
+  if (!strcmp(was.modelLabel, now.modelLabel)) watch(was.cModel, now.cModel, "Modellkvoten är ny!", who, 1);
+}
+
+const char *pulseTakeAlert() {
+  if (!alertRank) return nullptr;
+  alertRank = 0;
+  return alertMsg;
+}
+
 bool pulseFeed(const char *json) {
   JsonDocument d;
   if (deserializeJson(d, json)) return false;
@@ -42,6 +82,7 @@ bool pulseFeed(const char *json) {
   strlcpy(n.modelLabel, lbl, sizeof n.modelLabel);
   n.ageAtRxMs = (uint32_t)(d["claudeAgeSec"] | 0.0f) * 1000UL;
   n.rxMs = millis();
+  if (P.any) watchQuotas(P, n);   // the first payload after boot is only the baseline
   n.any = true;
   P = n;
   dirty = true;

@@ -9,3 +9,4 @@ bool pulseFeed(const char *json);   // parse a (subset of a) /api/tokens v2 payl
 bool pulseWantsDraw();              // true when new data arrived or the once-a-second refresh is due
 void pulseDraw(Arduino_GFX *g);
 const char *pulseDebug();
+const char *pulseTakeAlert();      // a quota reset / passed 90 % since the last call, or nullptr
