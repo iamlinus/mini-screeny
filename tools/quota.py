@@ -100,9 +100,14 @@ def parse_usage_limits(body, now_ts):
             continue
         kind, pct = lim.get("kind"), lim.get("percent")
         reset_at = _parse_reset_at(lim.get("resets_at"), now_ts)
-        if (not isinstance(pct, (int, float)) or isinstance(pct, bool) or not math.isfinite(pct)
-                or not 0 <= pct <= 100 or reset_at is None or reset_at <= now_ts):
+        if not isinstance(pct, (int, float)) or isinstance(pct, bool) or not math.isfinite(pct) or not 0 <= pct <= 100:
             continue
+        if reset_at is None or reset_at <= now_ts:
+            # Between windows (the old one ended, no new one started yet) the session is simply 0 %
+            # with no reset time. Dropping it would show dashes as if the data were missing.
+            if kind != "session":
+                continue
+            pct, reset_at = 0, None
         if kind == "session":
             key = "session"
         elif kind == "weekly_all":
@@ -231,9 +236,13 @@ class ClaudeUsage:
             return out
         for key, prefix in (("session", "claudeSession"), ("week", "claudeWeek"), ("model", "claudeModelWeek")):
             v = self.found.get(key)
-            if v and v[1] > now:
+            if not v:
+                continue
+            if v[1] is not None and v[1] > now:
                 out[f"{prefix}Pct"] = v[0]
                 out[f"{prefix}ResetMin"] = max(0, int(round((v[1] - now) / 60)))
+            elif key == "session":
+                out[f"{prefix}Pct"] = 0.0     # window ended since the last probe: nothing used yet
         if "claudeModelWeekPct" in out:
             out["claudeModelWeekLabel"] = self.found.get("modelLabel")
         if out:
