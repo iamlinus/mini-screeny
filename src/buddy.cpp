@@ -202,12 +202,6 @@ bool buddySetName(const char *name) {
 }
 bool buddyAsleep() { return asleep; }
 
-void buddyBootShort() {
-  soundSetMuted(!soundMuted());
-  say(soundMuted() ? "Ljud av" : "Ljud på!", 1.5f, 3);
-  if (!soundMuted()) sfx::chirp();
-}
-
 static void wake(bool loud) {
   if (!asleep) return;
   asleep = false; yawned = false;

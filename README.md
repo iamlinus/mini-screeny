@@ -52,12 +52,14 @@ Kortet behöver veta hur sensorn sitter i förhållande till skärmen. Du gör d
 
 Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 
-## Knappar på gubbsidan
+## Knappar
 | Knapp | Gör |
 |---|---|
 | PWR | Nästa sida |
-| BOOT kort tryck | Ljud av/på (sparas) |
-| BOOT långt tryck | Kalibrera om |
+| BOOT tre snabba tryck | Öppnar inställningssidan i webbläsaren på Macen |
+| BOOT långt tryck (på gubbsidan) | Kalibrera om |
+
+Skärmen är tyst (öppet kontorslandskap). Ljudet finns kvar i koden: lägg till `-DWITH_SOUND` i `build_flags` i `platformio.ini` för att slå på det.
 
 ## Vad gubben reagerar på
 | Gör så här | Händer |
@@ -82,9 +84,8 @@ Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 .venv/bin/python -I tools/sim.py scenario spin shake   # kör med simulerad sensordata -> tools/out/*_sheet.png
 .venv/bin/python -I tools/sim.py shot tools/out/now.png  # skärmdump så som skärmen ser ut i monteringen (lägg till `raw` för panelens oroterade bild)
 ```
-Lägg till `-DQUIET_BUILD` i `platformio.ini` för att stänga av allt ljud medan du utvecklar.
 
-Serial-kommandon: `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
+Serial-kommandon (dator → kort): `cfg {json}`, `vp {json}`, `stk {json}`, `fb {json}`, `hello`, `ping`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`, `bootclicks N` (test). Kort → dator: `evt settings` (BOOT tre gånger), `mini-screeny boot`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
 `buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `football.*` (fotbollssidan), `link.*` (statusmarkeringen), `theme.h` (färgerna för alla sidor), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/webconfig.*` (inställningssidan), `tools/config.py` (`config.toml`), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).

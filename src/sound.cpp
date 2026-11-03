@@ -31,8 +31,8 @@ bool soundMuted() { return muted; }
 bool soundBusy() { return playing; }
 
 void soundPlay(const Note *seq, uint8_t n, bool interrupt) {
-#ifdef QUIET_BUILD
-  return;   // development builds never make noise (user is asleep)
+#ifndef WITH_SOUND
+  return;   // sound is off: the screen sits in an open-plan office. Build with -DWITH_SOUND to enable.
 #endif
   if (muted) return;
   if (playing && !interrupt) return;

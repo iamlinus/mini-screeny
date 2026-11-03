@@ -28,7 +28,7 @@ Other tools pause it to use the port (see tools/boardport.py): sim.py does that 
 `tools/sim.py flash` flashes the firmware.
 Adding a source: write a fetch function returning a dict (raise or return None = no data) and add it to SOURCES.
 """
-import argparse, fcntl, json, os, signal, sys, threading, time, urllib.request
+import argparse, fcntl, json, os, signal, subprocess, sys, threading, time, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import serial
@@ -198,6 +198,19 @@ class Board:
             self.lost.set()
             return False
 
+    _opened_at = 0.0
+
+    def _open_settings(self):
+        # BOOT pressed three times on the board: open the settings page (at most every 5 s)
+        if time.time() - self._opened_at < 5:
+            return
+        self._opened_at = time.time()
+        log("board asked for the settings page")
+        try:
+            subprocess.Popen(["open", f"http://localhost:{webconfig.PORT}"])
+        except OSError as e:
+            log(f"cannot open the settings page: {e}")
+
     def _reader(self, ser):
         # Keep draining the board's output; an unread USB CDC buffer slows the board's loop down.
         while True:
@@ -209,7 +222,9 @@ class Board:
                 return
             if not ln:
                 continue
-            if ln == "mini-screeny boot":
+            if ln == "evt settings":
+                self._open_settings()
+            elif ln == "mini-screeny boot":
                 log("board booted, resending everything")
                 self.booted.set()
             elif ln.startswith(("ok hello", "err", "wifi credentials")):
