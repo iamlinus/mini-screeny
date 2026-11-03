@@ -53,7 +53,7 @@ def cmd(s, c, wait_ok=True, timeout=6.0):
     t = time.time()
     while time.time() - t < timeout:
         ln = s.readline().decode(errors="replace").strip()
-        if ln.startswith(("ok", "err", "heap=", "pos=", "up=", "type=")):
+        if ln.startswith(("ok", "err", "heap=", "pos=", "up=", "type=", "vp any=", "stk any=")):
             return ln
     return "(timeout)"
 

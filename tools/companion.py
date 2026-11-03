@@ -2,28 +2,29 @@
 """mini screeny companion server: the Mac fetches the data, the board only shows it.
 
 The board has no network. This process holds its USB serial port and sends one line per data
-source, "<tag> {json}", whenever the source is due. Sources:
+source, "<tag> {json}". Every source runs in its own thread, so a slow fetch never holds up the port.
 
-  vp   VibePulse quotas from the tokenserver on this Mac (http://localhost:8737/api/tokens), every 30 s
+  vp   Claude + Codex quota windows, read on this Mac (tools/quota.py, adapted from VibePulse), every 30 s
   stk  Kjell Group quote from Avanza's public quote endpoint, every 60 s
 
-Every source resends its last good payload each round, and everything is resent at once when the
-board prints "mini-screeny boot", so a rebooted board is filled again within a second. A source
-that fails sends nothing: the board keeps the last values and greys out its live dot.
+Each fresh result is sent once; everything is sent again on (re)connect and when the board prints
+"mini-screeny boot", so a rebooted board is filled within a second. A source that fails sends
+nothing: the board keeps the last values and greys out its live dot.
 
   companion.py                    run (normally started at login by tools/companion_launchagent.sh)
   companion.py --once             one round, then exit
-  companion.py --vp-fixture F     send a VibePulse JSON file instead of polling the tokenserver
+  companion.py --vp-fixture F     send a VibePulse-shaped JSON file instead of the live quotas
 
 Other tools pause it to use the port (see tools/boardport.py): sim.py does that by itself, and
 `tools/sim.py flash` flashes the firmware.
-Adding a source: write a fetch function returning a dict (or None) and add it to SOURCES.
+Adding a source: write a fetch function returning a dict (raise or return None = no data) and add it to SOURCES.
 """
 import argparse, fcntl, json, os, signal, sys, threading, time, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import serial
 import boardport as bp
+import quota
 
 MAX_LINE = 700        # the board's line buffer is 768 bytes including the tag
 UA = "mini-screeny-companion/1"
@@ -47,6 +48,8 @@ VP_KEYS = [
     "codexSessionPct", "codexSessionResetMin",
     "codexWeekPct", "codexWeekResetMin",
 ]
+_claude = quota.ClaudeUsage(os.path.join(bp.OUT, ".claude_probe_state.json"), log)
+_codex = quota.CodexUsage(log)
 
 
 def fetch_vibepulse(args):
@@ -54,8 +57,12 @@ def fetch_vibepulse(args):
         with open(args.vp_fixture) as f:
             payload = json.load(f)
     else:
-        payload = get_json("http://localhost:8737/api/tokens", timeout=5)
-    # Only the fields the page draws. Missing or null stays null: the board shows dashes, never 0.
+        _claude.poll()      # rate-limited inside: the usage endpoint is asked every 4 min at most
+        _codex.poll()       # every 60 s
+        payload = {**_claude.values(), **_codex.values()}
+        if not payload:
+            return None
+    # Only the fields the page draws. Missing stays null: the board shows dashes, never 0.
     sub = {k: payload.get(k) for k in VP_KEYS}
     if isinstance(sub.get("claudeModelWeekLabel"), str):
         sub["claudeModelWeekLabel"] = sub["claudeModelWeekLabel"][:22]
@@ -76,16 +83,31 @@ def fetch_stock(args):
 class Source:
     def __init__(self, tag, every, fetch):
         self.tag, self.every, self.fetch = tag, every, fetch
-        self.due = 0.0
-        self.line = None        # last good payload, encoded
+        self.line = None        # last good payload, encoded; None = nothing to send
+        self.version = 0        # bumped on every fresh line
+        self.rounds = 0
         self.ok = None          # last fetch state, for logging changes only
+
+    def start(self, args):
+        threading.Thread(target=self._loop, args=(args,), daemon=True, name=f"src-{self.tag}").start()
+
+    def _loop(self, args):
+        while True:
+            t0 = time.time()
+            self.refresh(args)
+            self.rounds += 1
+            time.sleep(max(1.0, self.every - (time.time() - t0)))
 
     def refresh(self, args):
         try:
-            body = json.dumps(self.fetch(args), separators=(",", ":"), ensure_ascii=False)
+            data = self.fetch(args)
+            if data is None:
+                raise ValueError("nothing available")
+            body = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
             if len(body.encode()) + len(self.tag) + 2 > MAX_LINE:
                 raise ValueError(f"line too long ({len(body)} bytes)")
             self.line = f"{self.tag} {body}\n".encode()
+            self.version += 1
             if self.ok is not True:
                 log(f"{self.tag}: data ok")
             self.ok = True
@@ -190,12 +212,15 @@ def set_ack(on):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--once", action="store_true", help="one round, then exit")
-    ap.add_argument("--vp-fixture", help="VibePulse JSON file to send instead of polling the tokenserver")
+    ap.add_argument("--vp-fixture", help="VibePulse-shaped JSON file to send instead of the live quotas")
     args = ap.parse_args()
 
     lock_fd = acquire_single_instance()
     log(f"companion started (pid {os.getpid()})")
+    for src in SOURCES:
+        src.start(args)
     board = Board()
+    sent = {}                   # tag -> version last sent on this connection
     waiting_logged = False
     try:
         while True:
@@ -224,23 +249,19 @@ def main():
                     time.sleep(2)
                     continue
                 waiting_logged = False
-                for s in SOURCES:
-                    s.due = 0           # fresh connection: send everything now
+                sent.clear()            # fresh connection: send everything we have
 
-            now = time.time()
-            resend = board.booted.is_set()
-            board.booted.clear()
-            for s in SOURCES:
-                if now >= s.due:
-                    s.refresh(args)
-                    s.due = now + s.every
-                    if s.line:
-                        board.send(s.line)
-                elif resend and s.line:
-                    board.send(s.line)
+            if board.booted.is_set():
+                board.booted.clear()
+                sent.clear()
+            for src in SOURCES:
+                ver, line = src.version, src.line    # version first: a racing update is just resent
+                if line and sent.get(src.tag) != ver:
+                    if board.send(line):
+                        sent[src.tag] = ver
 
-            if args.once:
-                time.sleep(1.5)        # let the acks arrive
+            if args.once and all(src.rounds for src in SOURCES):
+                time.sleep(1.5)         # let the acks arrive
                 return
             time.sleep(0.25)
     finally:
