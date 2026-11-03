@@ -8,7 +8,7 @@
 // Avanza's quote and sends the raw fields plus name/ticker/market/currency over USB as "stk {json}".
 
 struct StockData {
-  char priceI[8], priceD[4], chgAbs[12], chgPct[12], volume[16], bidAsk[24], lows[20], highs[20];
+  char priceI[8], priceD[4], chgAbs[12], chgPct[12], lows[20], highs[20];
   char name[24], sub[36], cur[6];
   float price, low, high;
   bool down, any;
@@ -23,15 +23,6 @@ static int lastMark = -1;
 static void fmt2(float v, char *out, size_t n, bool sign = false) {
   snprintf(out, n, sign ? "%+.2f" : "%.2f", v);
   for (char *c = out; *c; c++) if (*c == '.') *c = ',';
-}
-static void fmtThousands(long v, char *out, size_t n) {
-  char t[16]; snprintf(t, sizeof t, "%ld", v);
-  int len = strlen(t), o = 0;
-  for (int i = 0; i < len && o < (int)n - 2; i++) {
-    if (i && (len - i) % 3 == 0) out[o++] = ' ';
-    out[o++] = t[i];
-  }
-  out[o] = 0;
 }
 
 bool stockFeed(const char *json) {
@@ -48,12 +39,9 @@ bool stockFeed(const char *json) {
   if (comma) { *comma = 0; strlcpy(n.priceI, buf, sizeof n.priceI); strlcpy(n.priceD, comma + 1, sizeof n.priceD); }
   fmt2(chg, n.chgAbs, sizeof n.chgAbs, true);
   char pb[12]; fmt2(pct, pb, sizeof pb, true); snprintf(n.chgPct, sizeof n.chgPct, "%s%%", pb);
-  fmtThousands((long)(d["totalVolumeTraded"] | 0.0f), n.volume, sizeof n.volume);
-  char lo[12], hi[12], b[12], s[12];
+  char lo[12], hi[12];
   fmt2(n.low, lo, sizeof lo); fmt2(n.high, hi, sizeof hi);
   snprintf(n.lows, sizeof n.lows, "Lägst %s", lo); snprintf(n.highs, sizeof n.highs, "Högst %s", hi);
-  fmt2(d["buy"] | 0.0f, b, sizeof b); fmt2(d["sell"] | 0.0f, s, sizeof s);
-  snprintf(n.bidAsk, sizeof n.bidAsk, "%s / %s", b, s);
   strlcpy(n.name, d["name"] | "", sizeof n.name);
   strlcpy(n.sub, d["sub"] | "", sizeof n.sub);
   strlcpy(n.cur, d["cur"] | "", sizeof n.cur);
@@ -107,10 +95,10 @@ void drawStock(Arduino_GFX *g) {
   if (drawNoData(g, d.any)) return;
   g->setFont(u8g2_font_helvB14_tf);
   g->setTextColor(TEXT);
-  centerText(g, d.name, cx, 36);
+  centerText(g, d.name, cx, 42);
   g->setFont(u8g2_font_helvR08_tf);
   g->setTextColor(MUTED);
-  centerText(g, d.sub, cx, 53);
+  centerText(g, d.sub, cx, 60);
 
   // price with the currency after it, centred as one group
   g->setFont(u8g2_font_logisoso50_tn);
@@ -120,7 +108,7 @@ void drawStock(Arduino_GFX *g) {
   g->getTextBounds(d.priceD, 0, 0, &xd, &y1, &wd, &hd);
   g->setFont(u8g2_font_helvR10_tf);
   g->getTextBounds(d.cur, 0, 0, &xs, &y1, &ws, &hs);
-  const int dot = 14, gap = 8, baseY = 118;
+  const int dot = 14, gap = 8, baseY = 134;
   int x0 = cx - (int)(wi + dot + wd + gap + ws) / 2;
   g->setFont(u8g2_font_logisoso50_tn);
   g->setTextColor(TEXT);
@@ -131,7 +119,7 @@ void drawStock(Arduino_GFX *g) {
   g->setTextColor(MUTED);
   g->setCursor(x0 + wi + dot + wd + gap - xs, baseY); g->print(d.cur);
 
-  const int pw = 150, ph = 28, px = cx - pw / 2, py = 130;
+  const int pw = 150, ph = 28, px = cx - pw / 2, py = 150;
   g->fillRoundRect(px, py, pw, ph, 14, TREND_BG);
   int tx = px + 20, ty = py + ph / 2;
   if (d.down) g->fillTriangle(tx - 6, ty - 5, tx + 6, ty - 5, tx, ty + 6, TREND);
@@ -143,7 +131,7 @@ void drawStock(Arduino_GFX *g) {
   g->setCursor(px + 96, py + 19); g->print(d.chgAbs);
 
   // day range
-  const int by = 182, bw = R - L;
+  const int by = 212, bw = R - L;
   g->setFont(u8g2_font_helvR08_tf);
   g->setTextColor(MUTED);
   g->setCursor(L, by - 8); g->print(d.lows);
@@ -154,13 +142,4 @@ void drawStock(Arduino_GFX *g) {
   g->fillRoundRect(L, by, max(6, mx - L), 6, 3, TREND);
   g->fillCircle(mx, by + 3, 7, TEXT);
   g->fillCircle(mx, by + 3, 3, TREND);
-
-  g->setFont(u8g2_font_helvR08_tf);
-  g->setTextColor(MUTED);
-  g->setCursor(L, 212); g->print("VOLYM");
-  rightText(g, "KÖP / SÄLJ", R, 212);
-  g->setFont(u8g2_font_helvB10_tf);
-  g->setTextColor(TEXT);
-  g->setCursor(L, 228); g->print(d.volume);
-  rightText(g, d.bidAsk, R, 228);
 }
