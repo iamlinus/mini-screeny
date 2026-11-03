@@ -8,3 +8,4 @@ tools/photo_preview.png
 tools/out/
 compile_commands.json
 __pycache__/
+.cache/
