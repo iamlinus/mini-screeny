@@ -1,25 +1,22 @@
 #include "stock.h"
 #include "board.h"
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
-#include "secrets.h"
 
-// Avanza public quote endpoint (no key). Kjell Group orderbook 1276742.
-static const char *QUOTE_URL = "https://www.avanza.se/_api/market-guide/stock/1276742/quote";
+// Kjell Group quote. The board has no network of its own: tools/companion.py on the Mac fetches
+// Avanza's public quote (orderbook 1276742) and sends the raw fields over USB as "stk {json}".
 
 struct StockData {
   char priceI[8], priceD[4], chgAbs[12], chgPct[12], volume[16], bidAsk[24], lows[20], highs[20];
   float price, low, high;
-  bool down, live;
+  bool down, any;
+  uint32_t rxMs;
 };
 
-// Start values = closing quote fetched 2026-11-01
+// Start values = closing quote fetched 2026-11-01 (shown grey until the companion sends data)
 static StockData D = {"19", "00", "-0,50", "-2,56%", "75 763", "19,00 / 19,20", "Lägst 19,00", "Högst 19,30",
-                      19.00f, 19.00f, 19.30f, true, false};
-static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
-static volatile bool dirty = false;
+                      19.00f, 19.00f, 19.30f, true, false, 0};
+static bool dirty = false, wasLive = false;
+static const uint32_t STALE_MS = 180000;   // the companion sends every 60 s
 
 static void fmt2(float v, char *out, size_t n, bool sign = false) {
   snprintf(out, n, sign ? "%+.2f" : "%.2f", v);
@@ -35,59 +32,47 @@ static void fmtThousands(long v, char *out, size_t n) {
   out[o] = 0;
 }
 
-static bool fetchQuote() {
-  WiFiClientSecure cl; cl.setInsecure();
-  HTTPClient http;
-  http.setTimeout(6000);
-  if (!http.begin(cl, QUOTE_URL)) return false;
-  http.addHeader("User-Agent", "Mozilla/5.0");
-  int code = http.GET();
-  if (code != 200) { Serial.printf("quote HTTP %d\n", code); http.end(); return false; }
+bool stockFeed(const char *json) {
   JsonDocument d;
-  DeserializationError e = deserializeJson(d, http.getString());
-  http.end();
-  if (e || !d["last"].is<float>()) { Serial.println("quote json fail"); return false; }
-
+  if (deserializeJson(d, json) || !d["last"].is<float>()) return false;
   StockData n = D;
-  n.price = d["last"]; n.high = d["highest"]; n.low = d["lowest"];
-  float chg = d["change"], pct = d["changePercent"];
+  n.price = d["last"];
+  n.high = d["highest"] | n.price;
+  n.low = d["lowest"] | n.price;
+  float chg = d["change"] | 0.0f, pct = d["changePercent"] | 0.0f;
   n.down = chg < 0;
   char buf[16]; fmt2(n.price, buf, sizeof buf);
   char *comma = strchr(buf, ',');
   if (comma) { *comma = 0; strlcpy(n.priceI, buf, sizeof n.priceI); strlcpy(n.priceD, comma + 1, sizeof n.priceD); }
   fmt2(chg, n.chgAbs, sizeof n.chgAbs, true);
   char pb[12]; fmt2(pct, pb, sizeof pb, true); snprintf(n.chgPct, sizeof n.chgPct, "%s%%", pb);
-  fmtThousands((long)(float)d["totalVolumeTraded"], n.volume, sizeof n.volume);
+  fmtThousands((long)(d["totalVolumeTraded"] | 0.0f), n.volume, sizeof n.volume);
   char lo[12], hi[12], b[12], s[12];
   fmt2(n.low, lo, sizeof lo); fmt2(n.high, hi, sizeof hi);
   snprintf(n.lows, sizeof n.lows, "Lägst %s", lo); snprintf(n.highs, sizeof n.highs, "Högst %s", hi);
-  fmt2(d["buy"], b, sizeof b); fmt2(d["sell"], s, sizeof s);
+  fmt2(d["buy"] | 0.0f, b, sizeof b); fmt2(d["sell"] | 0.0f, s, sizeof s);
   snprintf(n.bidAsk, sizeof n.bidAsk, "%s / %s", b, s);
-  n.live = true;
-  portENTER_CRITICAL(&mux); D = n; portEXIT_CRITICAL(&mux);
+  n.any = true; n.rxMs = millis();
+  D = n;
   dirty = true;
-  Serial.printf("quote %.2f (%s)\n", n.price, n.chgPct);
   return true;
 }
 
-static void netTask(void *) {
-  uint32_t nextFetch = 0;
-  for (;;) {
-    bool conn = WiFi.status() == WL_CONNECTED;
-    if (!conn && D.live) { portENTER_CRITICAL(&mux); D.live = false; portEXIT_CRITICAL(&mux); dirty = true; }
-    if (conn && millis() >= nextFetch) nextFetch = millis() + (fetchQuote() ? 60000 : 10000);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
+static bool live() { return D.any && millis() - D.rxMs < STALE_MS; }
+
+bool stockConsumeDirty() {
+  bool l = live();
+  bool d = dirty || l != wasLive;   // also redraw when the dot should turn grey
+  dirty = false; wasLive = l;
+  return d;
 }
 
-void stockBegin() {
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  xTaskCreatePinnedToCore(netTask, "net", 16384, nullptr, 1, nullptr, 0);
+const char *stockDebug() {
+  static char b[96];
+  snprintf(b, sizeof b, "stk any=%d age=%lus price=%s,%s %s", D.any, D.any ? (unsigned long)((millis() - D.rxMs) / 1000) : 0UL,
+           D.priceI, D.priceD, D.chgPct);
+  return b;
 }
-
-bool stockConsumeDirty() { bool d = dirty; dirty = false; return d; }
 
 #define C(r_, g_, b_) g->color565(r_, g_, b_)
 static void centerText(Arduino_GFX *g, const char *s, int cx, int y) {
@@ -105,8 +90,7 @@ static void rightText(Arduino_GFX *g, const char *s, int rx, int y) {
 
 // Landscape layout for the mounted screen (SCREEN_W x SCREEN_H = 280 x 240)
 void drawStock(Arduino_GFX *g) {
-  StockData d;
-  portENTER_CRITICAL(&mux); d = D; portEXIT_CRITICAL(&mux);
+  const StockData &d = D;
 
   const uint16_t BG = C(8, 10, 16), CARD = C(22, 26, 38), TEXT = C(245, 247, 250), MUTED = C(130, 140, 160);
   const uint16_t TREND = d.down ? C(255, 85, 95) : C(60, 220, 140);
@@ -120,7 +104,7 @@ void drawStock(Arduino_GFX *g) {
   g->setFont(u8g2_font_helvR08_tf);
   g->setTextColor(MUTED);
   centerText(g, "KJELL  ·  Nasdaq First North", cx, 53);
-  g->fillCircle(W - 30, 31, 4, d.live ? C(60, 220, 140) : C(90, 96, 110));
+  g->fillCircle(W - 30, 31, 4, live() ? C(60, 220, 140) : C(90, 96, 110));
 
   // price with "SEK" after it, centred as one group
   g->setFont(u8g2_font_logisoso50_tn);

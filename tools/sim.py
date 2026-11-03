@@ -5,22 +5,42 @@
   sim.py shot out.png [raw]               dump the current frame as seen in the mount (raw = unrotated panel)
   sim.py scenario NAME                    run a scripted scenario, writes tools/out/NAME_*.png + contact sheet
   sim.py pulse                            VibePulse page with test payloads -> tools/out/pulse_sheet.png
+  sim.py flash                            build + flash the firmware (pauses the companion meanwhile)
+
+If tools/companion.py is running it is paused automatically while sim.py holds the port.
 
 The firmware draws on a canvas rotated by MOUNT_ROT (board.h); the dump is the raw panel framebuffer
 plus that rotation, and shot() turns it back so the PNG looks like the mounted screen.
 """
-import sys, time, os, glob
-import serial
+import sys, time, os, atexit, subprocess
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import boardport as bp
 from PIL import Image, ImageDraw
 
-# Board shows up as a different usbmodem depending on which USB port/hub it is in
-# (laptop: usbmodem101, Dell monitor hub: usbmodem111201). Override with SIM_PORT.
-PORT = os.environ.get("SIM_PORT") or (sorted(glob.glob("/dev/cu.usbmodem*")) or ["/dev/cu.usbmodem101"])[0]
-OUT = os.path.join(os.path.dirname(__file__), "out")
+# The board's usbmodem name depends on the USB port/hub (laptop: usbmodem101, Dell monitor hub:
+# usbmodem111201); boardport finds it by its Espressif USB id. Override with SIM_PORT.
+OUT = bp.OUT
+_pause = None
+
+
+def pause_companion():
+    """Make tools/companion.py let go of the port until this process exits."""
+    global _pause
+    if _pause is None:
+        _pause = bp.CompanionPaused().__enter__()
+        atexit.register(_pause.__exit__, None, None, None)
+
+
+def port_or_die():
+    port = bp.find_port()
+    if not port:
+        sys.exit("no board found (is it plugged in?)")
+    return port
 
 
 def open_port():
-    s = serial.Serial(PORT, 115200, timeout=2)
+    pause_companion()
+    s = bp.open_serial(port_or_die(), timeout=2)
     time.sleep(0.2)
     s.reset_input_buffer()
     return s
@@ -255,5 +275,10 @@ if __name__ == "__main__":
             run_scenario(n)
     elif what == "pulse":
         run_pulse()
+    elif what == "flash":
+        pause_companion()
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sys.exit(subprocess.call([os.path.join(root, ".venv/bin/pio"), "run", "-e", "lcd169", "-t", "upload",
+                                  "--upload-port", port_or_die()], cwd=root))
     elif what == "list":
         print(" ".join(SCENARIOS))

@@ -4,18 +4,36 @@ Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduin
 
 ## Sidor (PWR byter sida)
 1. **Claude-gubben**: en interaktiv figur som styrs av rörelsesensorn
-2. **Kjell Group-aktien**: hämtas live från Avanza via Wi-Fi varje minut (grön prick = live)
-3. **VibePulse**: dina Claude-kvoter (session, vecka, modellvecka) och Codex-veckan. Data kommer från [VibePulse](https://github.com/niclasvestlund-YT/vibepulse)-servern på Macen och skickas över USB-kabeln, så sidan behöver inget Wi-Fi (grön prick = färsk data, grå = inget på 2 min). Streck betyder att värdet saknas.
+2. **Kjell Group-aktien**: livekurs från Avanza varje minut (grön prick = live, grå = inget på 3 min)
+3. **VibePulse**: dina Claude-kvoter (session, vecka, modellvecka) och Codex-veckan. Data kommer från [VibePulse](https://github.com/niclasvestlund-YT/vibepulse)-servern på Macen (grön prick = färsk data, grå = inget på 2 min). Streck betyder att värdet saknas.
 
 ## Orientering
 Skärmen sitter monterad liggande: panelens högra kant (sett med standardorienteringen 240×280) är golvet. Alla sidor ritas därför på en canvas som roteras med `MOUNT_ROT` i `src/board.h` (3 just nu) och är 280×240 px. Sensorvärdena roteras på samma sätt, så "ner" i koden är golvet i monteringen. Monterar du om kortet räcker det att ändra `MOUNT_ROT` (0–3). Kalibreringen sparas i panelens axlar och behöver inte göras om.
 
-## VibePulse över USB
-1. Starta VibePulse-servern på Macen (i VibePulse-repot): `python3 tools/tokenserver/tokenserver.py`. Första gången frågar macOS om Nyckelringen; välj *Tillåt alltid*. Kolla med `curl -s localhost:8737/api/tokens`.
-2. Koppla in skärmen med USB och kör bryggan: `.venv/bin/python -I tools/vibepulse_bridge.py`. Den hämtar var 30:e sekund och skickar raden `vp {json}` till kortet.
-3. Bläddra med PWR till VibePulse-sidan.
+## Companion-servern på Macen
+Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara det som Macen skickar. `tools/companion.py` körs i bakgrunden, håller USB-porten och skickar en rad per datakälla:
 
-Testa utan server: `tools/vibepulse_bridge.py --fixture <vibepulse-repot>/sim-fixtures/tokens.json --once`, eller `tools/sim.py pulse` för skärmdumpar. Bryggan och `sim.py` kan inte använda porten samtidigt.
+| Rad | Källa | Hur ofta |
+|---|---|---|
+| `vp {json}` | VibePulse-servern på Macen (`localhost:8737/api/tokens`) | 30 s |
+| `stk {json}` | Avanzas publika kurs för Kjell Group | 60 s |
+
+Senaste data skickas om varje varv, och allt skickas direkt när kortet startar om (det skriver `mini-screeny boot`). Om en källa inte svarar skickas inget. Kortet behåller då de senaste värdena och pricken blir grå.
+
+**Autostart vid inloggning** (LaunchAgent):
+```sh
+tools/companion_launchagent.sh install     # installera + starta
+tools/companion_launchagent.sh status      # körs den? + senaste loggraderna
+tools/companion_launchagent.sh restart     # efter ändringar i companion.py
+tools/companion_launchagent.sh uninstall   # ta bort
+```
+Logg: `~/Library/Logs/mini-screeny-companion.log`. Kör den manuellt med `.venv/bin/python -I tools/companion.py` (`--once` för ett varv, `--vp-fixture fil.json` för att testa VibePulse utan server).
+
+**VibePulse** kräver att VibePulse-servern körs (i VibePulse-repot): `python3 tools/tokenserver/tokenserver.py`. Första gången frågar macOS om Nyckelringen; välj *Tillåt alltid*.
+
+**Ny datakälla**: skriv en funktion som returnerar en dict, lägg till den i `SOURCES` i `companion.py` och lägg till ett serial-kommando för taggen i firmwaren (som `stk` i `main.cpp`).
+
+**Porten delas**: companion-servern släpper porten automatiskt när `sim.py` behöver den (pausfil i `tools/out/`). Flasha därför med `tools/sim.py flash` och inte direkt med `pio`. Båda öppnar porten exklusivt, så en krock ger ett fel i stället för trasig data.
 
 ## Första start: kalibrering
 Kortet behöver veta hur sensorn sitter i förhållande till skärmen. Du gör det en gång, och det sparas sedan i flashminnet.
@@ -49,14 +67,14 @@ Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 
 ## Utveckling
 ```sh
-.venv/bin/pio run -e lcd169 -t upload      # bygg + flasha
+.venv/bin/python -I tools/sim.py flash     # bygg + flasha (pausar companion-servern under tiden)
 .venv/bin/python -I tools/sim.py list       # testscenarier
 .venv/bin/python -I tools/sim.py scenario spin shake   # kör med simulerad sensordata -> tools/out/*_sheet.png
 .venv/bin/python -I tools/sim.py shot tools/out/now.png  # skärmdump så som skärmen ser ut i monteringen (lägg till `raw` för panelens oroterade bild)
 ```
 Lägg till `-DQUIET_BUILD` i `platformio.ini` för att stänga av allt ljud medan du utvecklar.
 
-Serial-kommandon: `vp {json}`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
+Serial-kommandon: `vp {json}`, `stk {json}`, `hello`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
-`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (Avanza + Wi-Fi-tråd), `pulse.*` (VibePulse-sidan), `main.cpp`.
+`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (aktiesidan), `pulse.*` (VibePulse-sidan), `main.cpp`. På Macen: `tools/companion.py` (datakällor), `tools/boardport.py` (hitta kortet, dela porten), `tools/sim.py` (test).

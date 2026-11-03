@@ -1,6 +1,8 @@
 // mini screeny – Waveshare ESP32-S3-LCD-1.69
 // Pages (PWR): Claude buddy -> Kjell stock -> VibePulse.  BOOT on buddy page: short = mute, long = recalibrate.
+// No network on the board: tools/companion.py on the Mac fetches the data and sends it over USB serial.
 #include "board.h"
+#include <nvs_flash.h>
 #include "imu.h"
 #include "frame.h"
 #include "buddy.h"
@@ -173,7 +175,10 @@ static void showPage() {
 //   step N                          advance N frames
 //   dump                            raw RGB565 panel framebuffer: "FBDUMP 240 280 <MOUNT_ROT>\n" + 134400 bytes
 //   page N | dbg | stat | calreset | calguess
-//   vp {json}                       VibePulse quota line from tools/vibepulse_bridge.py
+//   vp {json}                       VibePulse quota line from tools/companion.py
+//   stk {json}                      Kjell stock quote (Avanza fields) from tools/companion.py
+//   nvswipe                         erase the NVS partition, keep calibration + mute (one-off cleanup)
+//   hello                           "ok hello mini-screeny ..." (the board also prints "mini-screeny boot" at start)
 static bool simMode = false;
 static Sensors simS = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
 static char line[768]; static uint16_t lineLen = 0;
@@ -190,6 +195,19 @@ static void handleCommand(char *c) {
   if (!strncmp(c, "vp ", 3)) {
     if (pulseFeed(c + 3)) Serial.printf("ok %s\n", pulseDebug()); else Serial.println("err vp json");
   }
+  else if (!strncmp(c, "stk ", 4)) {
+    if (stockFeed(c + 4)) Serial.printf("ok %s\n", stockDebug()); else Serial.println("err stk json");
+  }
+  else if (!strcmp(c, "nvswipe")) {
+    // Physically erase the whole NVS partition (old firmware left the Wi-Fi hotspot credentials there;
+    // an NVS erase only marks entries deleted), then write back the only things this firmware keeps.
+    bool hadCal = screenFrame.valid, m = soundMuted();
+    esp_err_t e1 = nvs_flash_deinit(), e2 = nvs_flash_erase(), e3 = nvs_flash_init();
+    if (hadCal) frameSave();
+    soundSetMuted(m);
+    Serial.printf("ok nvswipe deinit=%d erase=%d init=%d cal=%d mute=%d\n", e1, e2, e3, hadCal, m);
+  }
+  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse up=%lus\n", millis() / 1000);
   else if (!strcmp(c, "vpdbg")) Serial.println(pulseDebug());
   else if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
   else if (!strncmp(c, "sens ", 5)) {
@@ -279,7 +297,7 @@ void setup() {
   imuBegin();
   if (!frameLoad()) calStart();
   buddyInit();
-  stockBegin();
+  Serial.println("mini-screeny boot");   // tools/companion.py resends its cached data when it sees this
   showPage();
 }
 
