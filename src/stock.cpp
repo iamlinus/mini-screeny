@@ -1,5 +1,6 @@
 #include "stock.h"
 #include "board.h"
+#include "link.h"
 #include <ArduinoJson.h>
 
 // Kjell Group quote. The board has no network of its own: tools/companion.py on the Mac fetches
@@ -15,8 +16,8 @@ struct StockData {
 // Start values = closing quote fetched 2026-11-01 (shown grey until the companion sends data)
 static StockData D = {"19", "00", "-0,50", "-2,56%", "75 763", "19,00 / 19,20", "Lägst 19,00", "Högst 19,30",
                       19.00f, 19.00f, 19.30f, true, false, 0};
-static bool dirty = false, wasLive = false;
-static const uint32_t STALE_MS = 180000;   // the companion sends every 60 s
+static bool dirty = false;
+static int lastMark = -1;
 
 static void fmt2(float v, char *out, size_t n, bool sign = false) {
   snprintf(out, n, sign ? "%+.2f" : "%.2f", v);
@@ -58,12 +59,12 @@ bool stockFeed(const char *json) {
   return true;
 }
 
-static bool live() { return D.any && millis() - D.rxMs < STALE_MS; }
+static LinkState mark() { return linkState(D.any, millis() - D.rxMs); }
 
 bool stockConsumeDirty() {
-  bool l = live();
-  bool d = dirty || l != wasLive;   // also redraw when the dot should turn grey
-  dirty = false; wasLive = l;
+  int m = mark();
+  bool d = dirty || m != lastMark;   // also redraw when the status mark changes
+  dirty = false; lastMark = m;
   return d;
 }
 
@@ -104,7 +105,7 @@ void drawStock(Arduino_GFX *g) {
   g->setFont(u8g2_font_helvR08_tf);
   g->setTextColor(MUTED);
   centerText(g, "KJELL  ·  Nasdaq First North", cx, 53);
-  g->fillCircle(W - 30, 31, 4, live() ? C(60, 220, 140) : C(90, 96, 110));
+  drawLinkMark(g, W - 30, 31, mark());
 
   // price with "SEK" after it, centred as one group
   g->setFont(u8g2_font_logisoso50_tn);

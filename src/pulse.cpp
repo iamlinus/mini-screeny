@@ -1,5 +1,6 @@
 #include "pulse.h"
 #include "board.h"
+#include "link.h"
 #include <ArduinoJson.h>
 
 // One quota window. Missing or null in the payload = unknown, drawn as dashes, never as 0.
@@ -13,12 +14,12 @@ struct PulseData {
   Quota cSess, cWeek, cModel;
   char modelLabel[24] = "";
   uint32_t rxMs = 0;
-  bool any = false;   // at least one payload received since boot
+  uint32_t ageAtRxMs = 0;   // how old the companion said the numbers were when it sent them
+  bool any = false;         // at least one payload received since boot
 };
 
 static PulseData P;
 static bool dirty = true;
-static const uint32_t STALE_MS = 120000;   // same rule as VibePulse: stale after 120 s without data
 
 static void readQuota(JsonDocument &d, const char *pctKey, const char *resetKey, Quota &q) {
   JsonVariant p = d[pctKey], r = d[resetKey];
@@ -38,6 +39,7 @@ bool pulseFeed(const char *json) {
   readQuota(d, "claudeModelWeekPct", "claudeModelWeekResetMin", n.cModel);
   const char *lbl = d["claudeModelWeekLabel"] | "";
   strlcpy(n.modelLabel, lbl, sizeof n.modelLabel);
+  n.ageAtRxMs = (uint32_t)(d["claudeAgeSec"] | 0.0f) * 1000UL;
   n.rxMs = millis();
   n.any = true;
   P = n;
@@ -62,6 +64,8 @@ const char *pulseDebug() {
 
 // ---------------- drawing ----------------
 #define C(r_, g_, b_) g->color565(r_, g_, b_)
+
+static LinkState mark() { return linkState(P.any, P.ageAtRxMs + (millis() - P.rxMs)); }
 
 static uint16_t levelColor(Arduino_GFX *g, float pct) {
   if (pct >= 90) return C(255, 85, 95);
@@ -104,73 +108,64 @@ static void fmtDuration(long m, char *out, size_t n) {
   else snprintf(out, n, "%ld min", m);
 }
 
-// One weekly window in the right-hand column: label, bar, then "om <time to reset>" + percentage.
-static void barRow(Arduino_GFX *g, int x0, int x1, int y, const char *label, const Quota &q, uint16_t track, uint16_t text, uint16_t muted) {
+// One weekly window: label, bar, time to reset under it. The percentage sits after the label, or
+// (pctBelow, for the narrow side-by-side columns) at the end of the "om ..." line.
+static void barRow(Arduino_GFX *g, int x0, int x1, int y, const char *label, const Quota &q, bool pctBelow,
+                   uint16_t track, uint16_t text, uint16_t muted) {
+  char right[8];
+  if (q.has) snprintf(right, sizeof right, "%d%%", (int)q.pct);  // floor: 99.6 is not "100"
+  else strcpy(right, "--");
+  const int by = y + 6;
+
   g->setFont(u8g2_font_helvR08_tf); g->setTextColor(muted);
   g->setCursor(x0, y); g->print(label);
-  const int by = y + 6;
-  g->fillRoundRect(x0, by, x1 - x0, 5, 2, track);
-  if (q.has && q.pct > 0) g->fillRoundRect(x0, by, max(5, (int)((x1 - x0) * q.pct / 100)), 5, 2, levelColor(g, q.pct));
+  g->fillRoundRect(x0, by, x1 - x0, 6, 3, track);
+  if (q.has && q.pct > 0) g->fillRoundRect(x0, by, max(6, (int)((x1 - x0) * q.pct / 100)), 6, 3, levelColor(g, q.pct));
   if (q.has && q.hasReset) {
     char dur[16], ln[24];
     fmtDuration(minutesLeft(q), dur, sizeof dur);
     snprintf(ln, sizeof ln, "om %s", dur);
-    g->setCursor(x0, by + 20); g->print(ln);
+    g->setCursor(x0, by + 19); g->print(ln);
   }
-  char right[8];
-  if (q.has) snprintf(right, sizeof right, "%d%%", (int)q.pct);  // floor: 99.6 is not "100"
-  else strcpy(right, "--");
   g->setFont(u8g2_font_helvB10_tf); g->setTextColor(q.has ? text : muted);
-  rightText(g, right, x1, by + 21);
+  rightText(g, right, x1, pctBelow ? by + 20 : y + 1);
 }
 
-// Landscape layout for the mounted screen (SCREEN_W x SCREEN_H = 280 x 240):
-// session ring on the left, the weekly windows on the right, status line along the bottom.
-// The per-model week only exists while Anthropic runs a separate weekly cap for a model; no row then.
+// Landscape layout for the mounted screen (SCREEN_W x SCREEN_H = 280 x 240): the session ring
+// centred on top with its reset time inside, the week bar(s) underneath. The per-model week only
+// exists while Anthropic runs a separate weekly cap for a model; then the two bars sit side by side.
 void pulseDraw(Arduino_GFX *g) {
   const uint16_t BG = C(16, 13, 22), TRACK = C(40, 34, 50), TEXT = C(245, 240, 235), MUTED = C(150, 140, 160);
-  const uint16_t LIVE_COL = C(60, 220, 140), OFF_COL = C(90, 96, 110);
-  uint32_t now = millis();
-  bool stale = !P.any || now - P.rxMs > STALE_MS;
 
   g->fillScreen(BG);
-  g->fillCircle(SCREEN_W - 26, 26, 4, stale ? OFF_COL : LIVE_COL);
+  drawLinkMark(g, SCREEN_W - 24, 22, mark());
 
   // Session ring (Claude 5 h window)
-  const int cx = 82, cy = 104, ro = 64, ri = 52;
+  const int cx = SCREEN_W / 2, cy = 90, ro = 76, ri = 62;
   g->fillArc(cx, cy, ro, ri, 0, 360, TRACK);
   const Quota &s = P.cSess;
   if (s.has) ring(g, cx, cy, ro, ri, s.pct * 3.6f, levelColor(g, s.pct));
   char big[8];
   if (s.has) snprintf(big, sizeof big, "%d", (int)s.pct); else strcpy(big, "--");
-  g->setFont(u8g2_font_logisoso32_tn); g->setTextColor(s.has ? TEXT : MUTED);
+  g->setFont(u8g2_font_logisoso42_tn); g->setTextColor(s.has ? TEXT : MUTED);
   int16_t x1, y1; uint16_t w, h;
   g->getTextBounds(big, 0, 0, &x1, &y1, &w, &h);
-  int bx = cx - (int)w / 2 - x1 - (s.has ? 7 : 0);
+  int bx = cx - (int)w / 2 - x1 - (s.has ? 8 : 0);
   g->setCursor(bx, cy + 12); g->print(big);
-  if (s.has) { g->setFont(u8g2_font_helvB12_tf); g->setCursor(bx + w + 2, cy + 12); g->print("%"); }
+  if (s.has) { g->setFont(u8g2_font_helvB14_tf); g->setCursor(bx + x1 + w + 3, cy + 12); g->print("%"); }
   g->setFont(u8g2_font_helvR08_tf); g->setTextColor(MUTED);
   centerText(g, "SESSION", cx, cy + 30);
-
-  // Weekly windows, centred on the ring
-  const int c0 = 154, c1 = SCREEN_W - 16;
-  if (P.cModel.has) {
-    barRow(g, c0, c1, cy - 32, "VECKA", P.cWeek, TRACK, TEXT, MUTED);
-    barRow(g, c0, c1, cy + 22, P.modelLabel[0] ? P.modelLabel : "MODELL · VECKA", P.cModel, TRACK, TEXT, MUTED);
-  } else {
-    barRow(g, c0, c1, cy - 10, "VECKA", P.cWeek, TRACK, TEXT, MUTED);
+  if (s.has && s.hasReset) {
+    char dur[16]; fmtDuration(minutesLeft(s), dur, sizeof dur);
+    centerText(g, dur, cx, cy + 44);
   }
 
-  // Status line along the bottom
-  char line[40];
-  if (!P.any) strcpy(line, "Väntar på datorn ...");
-  else if (stale) {
-    char dur[16]; fmtDuration((now - P.rxMs) / 60000, dur, sizeof dur);
-    snprintf(line, sizeof line, "Ingen data på %s", dur);
-  } else if (s.has && s.hasReset) {
-    char dur[16]; fmtDuration(minutesLeft(s), dur, sizeof dur);
-    snprintf(line, sizeof line, "Sessionen nollställs om %s", dur);
-  } else line[0] = 0;
-  g->setFont(u8g2_font_helvR10_tf); g->setTextColor(stale && P.any ? C(255, 196, 90) : MUTED);
-  centerText(g, line, SCREEN_W / 2, 210);
+  // Weekly window(s) under the ring
+  const int y = 190;
+  if (P.cModel.has) {
+    barRow(g, 30, 132, y, "VECKA", P.cWeek, true, TRACK, TEXT, MUTED);
+    barRow(g, 148, SCREEN_W - 30, y, P.modelLabel[0] ? P.modelLabel : "MODELL · VECKA", P.cModel, true, TRACK, TEXT, MUTED);
+  } else {
+    barRow(g, 44, SCREEN_W - 44, y, "VECKA", P.cWeek, false, TRACK, TEXT, MUTED);
+  }
 }

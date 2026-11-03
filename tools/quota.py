@@ -230,4 +230,6 @@ class ClaudeUsage:
                 out[f"{prefix}ResetMin"] = max(0, int(round((v[1] - now) / 60)))
         if "claudeModelWeekPct" in out:
             out["claudeModelWeekLabel"] = self.found.get("modelLabel")
+        if out:
+            out["claudeAgeSec"] = int(now - self.ok_at)   # the board turns its dot red past 5 min
         return out

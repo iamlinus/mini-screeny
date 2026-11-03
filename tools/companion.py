@@ -9,7 +9,8 @@ source, "<tag> {json}". Every source runs in its own thread, so a slow fetch nev
 
 Each fresh result is sent once; everything is sent again on (re)connect and when the board prints
 "mini-screeny boot", so a rebooted board is filled within a second. A source that fails sends
-nothing: the board keeps the last values and greys out its live dot.
+nothing: the board keeps the last values and turns its dot red once they are 5 min old. A "ping"
+every 10 s tells the board the Mac is there; without it the board shows "ø".
 
   companion.py                    run (normally started at login by tools/companion_launchagent.sh)
   companion.py --once             one round, then exit
@@ -27,6 +28,7 @@ import boardport as bp
 import quota
 
 MAX_LINE = 700        # the board's line buffer is 768 bytes including the tag
+PING_EVERY_S = 10     # keep-alive: the board shows "ø" after 25 s without any line from us
 UA = "mini-screeny-companion/1"
 
 
@@ -45,6 +47,7 @@ VP_KEYS = [
     "claudeSessionPct", "claudeSessionResetMin",
     "claudeWeekPct", "claudeWeekResetMin",
     "claudeModelWeekPct", "claudeModelWeekResetMin", "claudeModelWeekLabel",
+    "claudeAgeSec",
 ]
 _claude = quota.ClaudeUsage(os.path.join(bp.OUT, ".claude_probe_state.json"), log)
 
@@ -217,6 +220,7 @@ def main():
         src.start(args)
     board = Board()
     sent = {}                   # tag -> version last sent on this connection
+    last_tx = 0.0
     waiting_logged = False
     try:
         while True:
@@ -255,6 +259,9 @@ def main():
                 if line and sent.get(src.tag) != ver:
                     if board.send(line):
                         sent[src.tag] = ver
+                        last_tx = time.time()
+            if time.time() - last_tx >= PING_EVERY_S and board.send(b"ping\n"):
+                last_tx = time.time()
 
             if args.once and all(src.rounds for src in SOURCES):
                 time.sleep(1.5)         # let the acks arrive

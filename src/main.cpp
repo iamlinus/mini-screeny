@@ -9,6 +9,7 @@
 #include "sound.h"
 #include "stock.h"
 #include "pulse.h"
+#include "link.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_CLK, LCD_DIN, GFX_NOT_DEFINED);
 Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0, true, PANEL_W, PANEL_H, 0, 20, 0, 20);
@@ -178,6 +179,7 @@ static void showPage() {
 //   vp {json}                       VibePulse quota line from tools/companion.py
 //   stk {json}                      Kjell stock quote (Avanza fields) from tools/companion.py
 //   nvswipe                         erase the NVS partition, keep calibration + mute (one-off cleanup)
+//   ping                            keep-alive from the companion (no reply)
 //   hello                           "ok hello mini-screeny ..." (the board also prints "mini-screeny boot" at start)
 static bool simMode = false;
 static Sensors simS = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -207,6 +209,7 @@ static void handleCommand(char *c) {
     soundSetMuted(m);
     Serial.printf("ok nvswipe deinit=%d erase=%d init=%d cal=%d mute=%d\n", e1, e2, e3, hadCal, m);
   }
+  else if (!strcmp(c, "ping")) {}       // companion keep-alive: only marks contact (linkSeen), no reply
   else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse up=%lus\n", millis() / 1000);
   else if (!strcmp(c, "vpdbg")) Serial.println(pulseDebug());
   else if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
@@ -265,7 +268,7 @@ static void handleCommand(char *c) {
 static void pollSerial() {
   while (Serial.available()) {
     char ch = Serial.read();
-    if (ch == '\n' || ch == '\r') { if (lineLen) { line[lineLen] = 0; handleCommand(line); Serial.flush(); lineLen = 0; } }
+    if (ch == '\n' || ch == '\r') { if (lineLen) { line[lineLen] = 0; linkSeen(); handleCommand(line); Serial.flush(); lineLen = 0; } }
     else if (lineLen < sizeof line - 1) line[lineLen++] = ch;
   }
 }
