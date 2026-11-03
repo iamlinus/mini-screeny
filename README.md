@@ -4,14 +4,23 @@ Waveshare **ESP32-S3-LCD-1.69** (240×280 ST7789V2, QMI8658 IMU, buzzer), Arduin
 
 ## Sidor (PWR byter sida)
 1. **Claude-gubben**: en interaktiv figur som styrs av rörelsesensorn
-2. **iShots**: ett snapsglas där vätskan ligger vågrätt mot verkligheten. Luta för att dricka och ställ upp kortet för påfyllning. BOOT byter sort: Chili & ingefära (HETT!), Tequila, Jäger, Salmiak, B-52, Blå lagun, Hallon
-3. **Kjell Group-aktien**: hämtas live från Avanza via Wi-Fi varje minut (grön prick = live)
-4. **Foto**: `photos/pojkar.png`, konverteras med `tools/make_photo.py`
+2. **Kjell Group-aktien**: hämtas live från Avanza via Wi-Fi varje minut (grön prick = live)
+3. **VibePulse**: dina Claude-kvoter (session, vecka, modellvecka) och Codex-veckan. Data kommer från [VibePulse](https://github.com/niclasvestlund-YT/vibepulse)-servern på Macen och skickas över USB-kabeln, så sidan behöver inget Wi-Fi (grön prick = färsk data, grå = inget på 2 min). Streck betyder att värdet saknas.
+
+## Orientering
+Skärmen sitter monterad liggande: panelens högra kant (sett med standardorienteringen 240×280) är golvet. Alla sidor ritas därför på en canvas som roteras med `MOUNT_ROT` i `src/board.h` (3 just nu) och är 280×240 px. Sensorvärdena roteras på samma sätt, så "ner" i koden är golvet i monteringen. Monterar du om kortet räcker det att ändra `MOUNT_ROT` (0–3). Kalibreringen sparas i panelens axlar och behöver inte göras om.
+
+## VibePulse över USB
+1. Starta VibePulse-servern på Macen (i VibePulse-repot): `python3 tools/tokenserver/tokenserver.py`. Första gången frågar macOS om Nyckelringen; välj *Tillåt alltid*. Kolla med `curl -s localhost:8737/api/tokens`.
+2. Koppla in skärmen med USB och kör bryggan: `.venv/bin/python -I tools/vibepulse_bridge.py`. Den hämtar var 30:e sekund och skickar raden `vp {json}` till kortet.
+3. Bläddra med PWR till VibePulse-sidan.
+
+Testa utan server: `tools/vibepulse_bridge.py --fixture <vibepulse-repot>/sim-fixtures/tokens.json --once`, eller `tools/sim.py pulse` för skärmdumpar. Bryggan och `sim.py` kan inte använda porten samtidigt.
 
 ## Första start: kalibrering
 Kortet behöver veta hur sensorn sitter i förhållande till skärmen. Du gör det en gång, och det sparas sedan i flashminnet.
 1. Lägg kortet **platt på bordet** med skärmen uppåt och tryck **BOOT** (eller PWR).
-2. Håll kortet **upprätt framför dig** (stående, skärmen mot dig) och tryck **BOOT** (eller PWR).
+2. Håll kortet **upprätt så som det sitter monterat** (golvet nedåt, skärmen mot dig) och tryck **BOOT** (eller PWR).
 
 Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 
@@ -43,11 +52,11 @@ Gör om kalibreringen genom att **hålla in BOOT i 1,2 s** på gubbsidan.
 .venv/bin/pio run -e lcd169 -t upload      # bygg + flasha
 .venv/bin/python -I tools/sim.py list       # testscenarier
 .venv/bin/python -I tools/sim.py scenario spin shake   # kör med simulerad sensordata -> tools/out/*_sheet.png
-.venv/bin/python -I tools/sim.py shot tools/out/now.png  # skärmdump av bildbufferten
+.venv/bin/python -I tools/sim.py shot tools/out/now.png  # skärmdump så som skärmen ser ut i monteringen (lägg till `raw` för panelens oroterade bild)
 ```
 Lägg till `-DQUIET_BUILD` i `platformio.ini` för att stänga av allt ljud medan du utvecklar.
 
-Serial-kommandon: `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
+Serial-kommandon: `vp {json}`, `vpdbg`, `sim 1|0`, `sens gx gy gz wz wmag jerk jx jy ff still`, `step N`, `dump`, `reset`, `stat`, `imu`, `dbg`, `calreset`, `calguess`, `page N`.
 
 Moduler: `board.h` (pinnar), `imu.*` (QMI8658-tråd 200 Hz), `frame.*` (kalibrering + sensorvärden i skärmkoordinater),
-`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (Avanza + Wi-Fi-tråd), `main.cpp`.
+`buddy.*` (fysik, humör, ritning), `sound.*` (icke-blockerande summer), `stock.*` (Avanza + Wi-Fi-tråd), `pulse.*` (VibePulse-sidan), `main.cpp`.

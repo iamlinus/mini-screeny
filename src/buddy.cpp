@@ -180,8 +180,8 @@ void buddyInit() {
   rockSwings = 0; rockDir = 0; cdRock = 0;
   uint32_t seed = 12345;
   for (auto &s : stars) {
-    seed = seed * 1103515245 + 12345; s.x = (seed >> 16) % 240;
-    seed = seed * 1103515245 + 12345; s.y = (seed >> 16) % 280;
+    seed = seed * 1103515245 + 12345; s.x = (seed >> 16) % SCREEN_W;
+    seed = seed * 1103515245 + 12345; s.y = (seed >> 16) % SCREEN_H;
     seed = seed * 1103515245 + 12345; s.depth = 1 + (seed >> 16) % 3;
   }
   for (auto &p : parts) p.on = false;
@@ -569,7 +569,7 @@ static void drawBubble(Arduino_GFX *g, uint16_t ink, uint16_t paper) {
       int sy = (int)floorf(c0y - dx * s + dy * c);
       if (sx < 0 || sy < 0 || sx >= BCW || sy >= BCH) continue;
       uint16_t v = src[sy * BCW + sx];
-      if (v != KEY) dst[y * (int)W + x] = v;
+      if (v != KEY) dst[fbIndex(x, y)] = v;   // logical (mounted) coords -> rotated framebuffer
     }
   }
 }
@@ -581,8 +581,8 @@ void buddyDraw(Arduino_GFX *g) {
   // parallax stars: shift against gravity for depth
   for (auto &s : stars) {
     float d = s.depth;
-    int x = (int)(s.x - gdx * gmag * d * 6) % 240, y = (int)(s.y - gdy * gmag * d * 6 + 280) % 280;
-    if (x < 0) x += 240;
+    int x = (int)(s.x - gdx * gmag * d * 6) % SCREEN_W, y = (int)(s.y - gdy * gmag * d * 6 + SCREEN_H) % SCREEN_H;
+    if (x < 0) x += SCREEN_W;
     uint8_t v = 40 + d * 22;
     g->drawPixel(x, y, rgb(g, v, v, v + 20));
     if (d == 3) g->drawPixel(x + 1, y, rgb(g, v, v, v + 20));

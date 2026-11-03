@@ -1,7 +1,8 @@
 #pragma once
 #include "imu.h"
 
-// Maps IMU axes to screen axes: X right, Y down (pixels), Z out of the screen toward the viewer.
+// Maps IMU axes to panel pixel axes: X right, Y down, Z out of the screen toward the viewer.
+// Sensors are reported in logical (mounted) screen axes, see MOUNT_ROT in board.h.
 // Found with a two-step calibration (flat, then upright) and stored in NVS.
 struct ScreenFrame {
   float X[3], Y[3], Z[3];
@@ -13,7 +14,7 @@ extern ScreenFrame screenFrame;
 bool frameLoad();
 void frameSave();
 void frameClear();
-// u1 = up-vector while lying flat (screen up), u2 = up-vector while upright (portrait, facing viewer)
+// u1 = up-vector while lying flat (screen up), u2 = up-vector while upright as mounted (facing viewer)
 bool frameFromCalibration(const float u1[3], const float u2[3]);
 void frameSetDirect(const float X[3], const float Y[3], const float Z[3]);
 

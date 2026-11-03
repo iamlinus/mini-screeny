@@ -89,79 +89,88 @@ void stockBegin() {
 
 bool stockConsumeDirty() { bool d = dirty; dirty = false; return d; }
 
-#define C(r, g, b) gfx->color565(r, g, b)
-static void centerText(const char *s, int cx, int y) {
+#define C(r_, g_, b_) g->color565(r_, g_, b_)
+static void centerText(Arduino_GFX *g, const char *s, int cx, int y) {
   int16_t x1, y1; uint16_t w, h;
-  gfx->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
-  gfx->setCursor(cx - w / 2 - x1, y);
-  gfx->print(s);
+  g->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+  g->setCursor(cx - w / 2 - x1, y);
+  g->print(s);
+}
+static void rightText(Arduino_GFX *g, const char *s, int rx, int y) {
+  int16_t x1, y1; uint16_t w, h;
+  g->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+  g->setCursor(rx - w - x1, y);
+  g->print(s);
 }
 
-void drawStock() {
+// Landscape layout for the mounted screen (SCREEN_W x SCREEN_H = 280 x 240)
+void drawStock(Arduino_GFX *g) {
   StockData d;
   portENTER_CRITICAL(&mux); d = D; portEXIT_CRITICAL(&mux);
 
   const uint16_t BG = C(8, 10, 16), CARD = C(22, 26, 38), TEXT = C(245, 247, 250), MUTED = C(130, 140, 160);
   const uint16_t TREND = d.down ? C(255, 85, 95) : C(60, 220, 140);
   const uint16_t TREND_BG = d.down ? C(60, 18, 26) : C(14, 56, 40);
+  const int W = SCREEN_W, cx = W / 2, L = 34, R = W - 34;
 
-  gfx->fillScreen(BG);
-  gfx->setFont(u8g2_font_helvB14_tf);
-  gfx->setTextColor(TEXT);
-  centerText("KJELL GROUP", 120, 44);
-  gfx->setFont(u8g2_font_helvR08_tf);
-  gfx->setTextColor(MUTED);
-  centerText("KJELL  ·  Nasdaq First North", 120, 62);
-  gfx->fillCircle(206, 40, 4, d.live ? C(60, 220, 140) : C(90, 96, 110));
+  g->fillScreen(BG);
+  g->setFont(u8g2_font_helvB14_tf);
+  g->setTextColor(TEXT);
+  centerText(g, "KJELL GROUP", cx, 36);
+  g->setFont(u8g2_font_helvR08_tf);
+  g->setTextColor(MUTED);
+  centerText(g, "KJELL  ·  Nasdaq First North", cx, 53);
+  g->fillCircle(W - 30, 31, 4, d.live ? C(60, 220, 140) : C(90, 96, 110));
 
-  gfx->setFont(u8g2_font_logisoso50_tn);
-  gfx->setTextColor(TEXT);
-  int16_t x1, y1; uint16_t wi, hi, wd, hd;
-  gfx->getTextBounds(d.priceI, 0, 0, &x1, &y1, &wi, &hi);
-  gfx->getTextBounds(d.priceD, 0, 0, &x1, &y1, &wd, &hd);
-  const int dot = 14, baseY = 128;
-  int x0 = 120 - (int)(wi + dot + wd) / 2;
-  gfx->setCursor(x0, baseY); gfx->print(d.priceI);
-  gfx->fillCircle(x0 + wi + dot / 2, baseY - 4, 3, TEXT);
-  gfx->setCursor(x0 + wi + dot, baseY); gfx->print(d.priceD);
+  // price with "SEK" after it, centred as one group
+  g->setFont(u8g2_font_logisoso50_tn);
+  // place by ink boxes (x1 = left bearing), otherwise the digits overlap and hide the decimal point
+  int16_t xi, xd, xs, y1; uint16_t wi, hi, wd, hd, ws, hs;
+  g->getTextBounds(d.priceI, 0, 0, &xi, &y1, &wi, &hi);
+  g->getTextBounds(d.priceD, 0, 0, &xd, &y1, &wd, &hd);
+  g->setFont(u8g2_font_helvR10_tf);
+  g->getTextBounds("SEK", 0, 0, &xs, &y1, &ws, &hs);
+  const int dot = 14, gap = 8, baseY = 118;
+  int x0 = cx - (int)(wi + dot + wd + gap + ws) / 2;
+  g->setFont(u8g2_font_logisoso50_tn);
+  g->setTextColor(TEXT);
+  g->setCursor(x0 - xi, baseY); g->print(d.priceI);
+  g->fillCircle(x0 + wi + dot / 2, baseY - 4, 3, TEXT);
+  g->setCursor(x0 + wi + dot - xd, baseY); g->print(d.priceD);
+  g->setFont(u8g2_font_helvR10_tf);
+  g->setTextColor(MUTED);
+  g->setCursor(x0 + wi + dot + wd + gap - xs, baseY); g->print("SEK");
 
-  gfx->setFont(u8g2_font_helvR10_tf);
-  gfx->setTextColor(MUTED);
-  centerText("SEK", 120, 150);
-
-  const int pw = 150, ph = 30, px = 120 - pw / 2, py = 160;
-  gfx->fillRoundRect(px, py, pw, ph, 15, TREND_BG);
+  const int pw = 150, ph = 28, px = cx - pw / 2, py = 130;
+  g->fillRoundRect(px, py, pw, ph, 14, TREND_BG);
   int tx = px + 20, ty = py + ph / 2;
-  if (d.down) gfx->fillTriangle(tx - 6, ty - 5, tx + 6, ty - 5, tx, ty + 6, TREND);
-  else        gfx->fillTriangle(tx - 6, ty + 5, tx + 6, ty + 5, tx, ty - 6, TREND);
-  gfx->setFont(u8g2_font_helvB12_tf);
-  gfx->setTextColor(TREND);
-  gfx->setCursor(px + 34, py + 21); gfx->print(d.chgPct);
-  gfx->setFont(u8g2_font_helvR10_tf);
-  gfx->setCursor(px + 96, py + 20); gfx->print(d.chgAbs);
+  if (d.down) g->fillTriangle(tx - 6, ty - 5, tx + 6, ty - 5, tx, ty + 6, TREND);
+  else        g->fillTriangle(tx - 6, ty + 5, tx + 6, ty + 5, tx, ty - 6, TREND);
+  g->setFont(u8g2_font_helvB12_tf);
+  g->setTextColor(TREND);
+  g->setCursor(px + 34, py + 20); g->print(d.chgPct);
+  g->setFont(u8g2_font_helvR10_tf);
+  g->setCursor(px + 96, py + 19); g->print(d.chgAbs);
 
-  const int bx = 34, bw = 172, by = 214;
-  gfx->setFont(u8g2_font_helvR08_tf);
-  gfx->setTextColor(MUTED);
-  gfx->setCursor(bx, by - 8); gfx->print(d.lows);
-  int16_t a; uint16_t w2, h2;
-  gfx->getTextBounds(d.highs, 0, 0, &a, &a, &w2, &h2);
-  gfx->setCursor(bx + bw - w2, by - 8); gfx->print(d.highs);
-  gfx->fillRoundRect(bx, by, bw, 6, 3, CARD);
+  // day range
+  const int by = 182, bw = R - L;
+  g->setFont(u8g2_font_helvR08_tf);
+  g->setTextColor(MUTED);
+  g->setCursor(L, by - 8); g->print(d.lows);
+  rightText(g, d.highs, R, by - 8);
+  g->fillRoundRect(L, by, bw, 6, 3, CARD);
   float t = (d.high > d.low) ? (d.price - d.low) / (d.high - d.low) : 0.5f;
-  int mx = bx + (int)(t * bw);
-  gfx->fillRoundRect(bx, by, max(6, mx - bx), 6, 3, TREND);
-  gfx->fillCircle(mx, by + 3, 7, TEXT);
-  gfx->fillCircle(mx, by + 3, 3, TREND);
+  int mx = L + (int)(t * bw);
+  g->fillRoundRect(L, by, max(6, mx - L), 6, 3, TREND);
+  g->fillCircle(mx, by + 3, 7, TEXT);
+  g->fillCircle(mx, by + 3, 3, TREND);
 
-  gfx->setFont(u8g2_font_helvR08_tf);
-  gfx->setTextColor(MUTED);
-  gfx->setCursor(34, 252); gfx->print("VOLYM");
-  gfx->getTextBounds("KÖP / SÄLJ", 0, 0, &a, &a, &w2, &h2);
-  gfx->setCursor(206 - w2, 252); gfx->print("KÖP / SÄLJ");
-  gfx->setFont(u8g2_font_helvB10_tf);
-  gfx->setTextColor(TEXT);
-  gfx->setCursor(34, 268); gfx->print(d.volume);
-  gfx->getTextBounds(d.bidAsk, 0, 0, &a, &a, &w2, &h2);
-  gfx->setCursor(206 - w2, 268); gfx->print(d.bidAsk);
+  g->setFont(u8g2_font_helvR08_tf);
+  g->setTextColor(MUTED);
+  g->setCursor(L, 212); g->print("VOLYM");
+  rightText(g, "KÖP / SÄLJ", R, 212);
+  g->setFont(u8g2_font_helvB10_tf);
+  g->setTextColor(TEXT);
+  g->setCursor(L, 228); g->print(d.volume);
+  rightText(g, d.bidAsk, R, 228);
 }

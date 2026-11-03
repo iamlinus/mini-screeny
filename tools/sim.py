@@ -2,14 +2,20 @@
 """Drive the board over USB serial: send test commands, grab framebuffer dumps as PNG.
 
   sim.py cmd "stat" "dbg"                 send commands, print replies
-  sim.py shot out.png                     dump the current frame
+  sim.py shot out.png [raw]               dump the current frame as seen in the mount (raw = unrotated panel)
   sim.py scenario NAME                    run a scripted scenario, writes tools/out/NAME_*.png + contact sheet
+  sim.py pulse                            VibePulse page with test payloads -> tools/out/pulse_sheet.png
+
+The firmware draws on a canvas rotated by MOUNT_ROT (board.h); the dump is the raw panel framebuffer
+plus that rotation, and shot() turns it back so the PNG looks like the mounted screen.
 """
-import sys, time, os
+import sys, time, os, glob
 import serial
 from PIL import Image, ImageDraw
 
-PORT = "/dev/cu.usbmodem101"
+# Board shows up as a different usbmodem depending on which USB port/hub it is in
+# (laptop: usbmodem101, Dell monitor hub: usbmodem111201). Override with SIM_PORT.
+PORT = os.environ.get("SIM_PORT") or (sorted(glob.glob("/dev/cu.usbmodem*")) or ["/dev/cu.usbmodem101"])[0]
 OUT = os.path.join(os.path.dirname(__file__), "out")
 
 
@@ -32,27 +38,40 @@ def cmd(s, c, wait_ok=True, timeout=6.0):
     return "(timeout)"
 
 
-def shot(s, path):
+def fb_index(x, y, rot, pw, ph):
+    """Panel framebuffer index for logical pixel (x, y); mirrors fbIndex() in board.h."""
+    lw, lh = (ph, pw) if rot & 1 else (pw, ph)
+    if rot == 1: return x * pw + (lh - 1 - y)
+    if rot == 2: return (lh - 1 - y) * pw + (lw - 1 - x)
+    if rot == 3: return (lw - 1 - x) * pw + y
+    return y * pw + x
+
+
+def shot(s, path, raw=False):
     s.reset_input_buffer()
     s.write(b"dump\n")
     t = time.time()
     while time.time() - t < 5:
         ln = s.readline()
         if ln.startswith(b"FBDUMP"):
-            _, w, h = ln.decode().split()
-            w, h = int(w), int(h)
+            parts = ln.decode().split()
+            w, h = int(parts[1]), int(parts[2])
+            rot = 0 if raw or len(parts) < 4 else int(parts[3])
             n = w * h * 2
             data = b""
             while len(data) < n and time.time() - t < 10:
                 data += s.read(n - len(data))
             if len(data) < n:
                 raise RuntimeError(f"short dump {len(data)}/{n}")
-            img = Image.new("RGB", (w, h))
+            lw, lh = (h, w) if rot & 1 else (w, h)
+            img = Image.new("RGB", (lw, lh))
             px = img.load()
-            for i in range(w * h):
-                v = data[2 * i] | (data[2 * i + 1] << 8)  # little-endian RGB565
-                r, g, b = (v >> 11) & 31, (v >> 5) & 63, v & 31
-                px[i % w, i // w] = (r * 255 // 31, g * 255 // 63, b * 255 // 31)
+            for y in range(lh):
+                for x in range(lw):
+                    i = fb_index(x, y, rot, w, h)
+                    v = data[2 * i] | (data[2 * i + 1] << 8)  # little-endian RGB565
+                    r, g, b = (v >> 11) & 31, (v >> 5) & 63, v & 31
+                    px[x, y] = (r * 255 // 31, g * 255 // 63, b * 255 // 31)
             img.save(path)
             return path
     raise RuntimeError("no FBDUMP header")
@@ -161,37 +180,47 @@ def sc_blood():
     return [("calm", dict(gy=1), 30), ("flip", dict(gy=-1), 45), ("hang 3s", dict(gy=-1), 90), ("hang 6s", dict(gy=-1), 90),
             ("hang 8s", dict(gy=-1), 60), ("back", dict(gy=1), 45), ("later", dict(gy=1), 60)]
 
-def sc_shots():
-    seq = [("@page 1", None, 0), ("upright", dict(gy=1), 30)]
-    for deg in (30, 70, 110):
-        a = math.radians(deg)
-        seq.append((f"tilt {deg}", dict(gx=-math.sin(a), gy=math.cos(a)), 15))
-    a = math.radians(160)
-    seq += [("pour", dict(gx=-math.sin(a), gy=math.cos(a)), 6), ("pour 2", dict(gx=-math.sin(a), gy=math.cos(a)), 10),
-            ("pour 3", dict(gx=-math.sin(a), gy=math.cos(a)), 20), ("upright", dict(gy=1), 12), ("refill", dict(gy=1), 40),
-            ("full", dict(gy=1), 30), ("slosh", dict(gy=1, jerk=1.5, jx=1.5), 1), ("slosh+5", dict(gy=1), 5)]
-    return seq
-
-def sc_types():
-    seq = [("@page 1", None, 0)]
-    for i in range(7):
-        seq += [("@next", None, 0), (f"type {i+1}", dict(gx=-0.26, gy=0.96), 55)]
-    return seq
-
-def sc_chili():
-    a = math.radians(170)
-    return [("@page 1", None, 0), ("full", dict(gy=1), 10), ("drink", dict(gx=-math.sin(a), gy=math.cos(a)), 30),
-            ("drink2", dict(gx=-math.sin(a), gy=math.cos(a)), 30), ("hot", dict(gy=1), 10), ("hot2", dict(gy=1), 30), ("after", dict(gy=1), 60)]
-
 def sc_idle():
     return [(f"idle {i}", dict(gy=1), 60) for i in range(8)]
 
 SCENARIOS = {k[3:]: v for k, v in globals().items() if k.startswith("sc_")}
 
 
+# VibePulse page (page 2): fixed payloads in the /api/tokens v2 shape, no tokenserver needed.
+PULSE_CASES = [
+    ("full", {"claudeSessionPct": 21.0, "claudeSessionResetMin": 256, "claudeWeekPct": 47.0, "claudeWeekResetMin": 9120,
+              "claudeModelWeekPct": 73.0, "claudeModelWeekResetMin": 3120, "claudeModelWeekLabel": "FABLE · WEEK",
+              "codexSessionPct": None, "codexSessionResetMin": None, "codexWeekPct": 35.0, "codexWeekResetMin": 2317}),
+    ("high", {"claudeSessionPct": 94.0, "claudeSessionResetMin": 38, "claudeWeekPct": 81.0, "claudeWeekResetMin": 1500,
+              "claudeModelWeekPct": 99.6, "claudeModelWeekResetMin": 700, "claudeModelWeekLabel": "FABLE · WEEK",
+              "codexWeekPct": None}),
+    ("quarter", {"claudeSessionPct": 25.0, "claudeSessionResetMin": 75, "claudeWeekPct": 12.0, "claudeWeekResetMin": 6000,
+                 "claudeModelWeekPct": 0.0, "claudeModelWeekResetMin": 6000, "claudeModelWeekLabel": "FABLE · WEEK"}),
+    ("missing", {"claudeSessionPct": None, "claudeWeekPct": None, "claudeModelWeekPct": None, "claudeModelWeekLabel": None,
+                 "codexWeekPct": None}),
+]
+
+
+def run_pulse():
+    import json
+    os.makedirs(OUT, exist_ok=True)
+    s = open_port()
+    print(cmd(s, "page 2"))
+    paths, labels = [], []
+    for name, payload in PULSE_CASES:
+        print(name, cmd(s, "vp " + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)))
+        time.sleep(1.3)  # the page redraws at most once a second
+        p = os.path.join(OUT, f"pulse_{name}.png")
+        shot(s, p)
+        paths.append(p); labels.append(name)
+    out = contact(paths, labels, os.path.join(OUT, "pulse_sheet.png"), cols=4)
+    print("sheet:", out)
+
+
 def run_scenario(name):
     os.makedirs(OUT, exist_ok=True)
     s = open_port()
+    print(cmd(s, "page 0"))   # buddy scenarios; do not depend on which page was left open
     print(cmd(s, "sim 1"))
     paths, labels = [], []
     print(cmd(s, "reset"))
@@ -220,9 +249,11 @@ if __name__ == "__main__":
             print(c, "->", cmd(s, c))
     elif what == "shot":
         s = open_port()
-        print(shot(s, sys.argv[2]))
+        print(shot(s, sys.argv[2], raw=len(sys.argv) > 3 and sys.argv[3] == "raw"))
     elif what == "scenario":
         for n in sys.argv[2:]:
             run_scenario(n)
+    elif what == "pulse":
+        run_pulse()
     elif what == "list":
         print(" ".join(SCENARIOS))

@@ -1,24 +1,21 @@
 // mini screeny – Waveshare ESP32-S3-LCD-1.69
-// Pages (PWR): Claude buddy -> Kjell stock -> photo.  BOOT on buddy page: short = mute, long = recalibrate.
+// Pages (PWR): Claude buddy -> Kjell stock -> VibePulse.  BOOT on buddy page: short = mute, long = recalibrate.
 #include "board.h"
 #include "imu.h"
 #include "frame.h"
 #include "buddy.h"
 #include "sound.h"
 #include "stock.h"
-#include "shots.h"
-
-#if __has_include("photo.h")
-#include "photo.h"
-#endif
+#include "pulse.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_CLK, LCD_DIN, GFX_NOT_DEFINED);
-Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0, true, SCREEN_W, SCREEN_H, 0, 20, 0, 20);
-Arduino_Canvas *canvas = new Arduino_Canvas(SCREEN_W, SCREEN_H, gfx);
+Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0, true, PANEL_W, PANEL_H, 0, 20, 0, 20);
+// The panel stays at rotation 0; only the canvas is rotated (MOUNT_ROT), so flush() copies it 1:1.
+Arduino_Canvas *canvas = new Arduino_Canvas(PANEL_W, PANEL_H, gfx);
 
 void backlight(uint8_t level) { ledcWrite(LEDC_BL, level); }
 
-enum Page { PAGE_BUDDY, PAGE_SHOTS, PAGE_STOCK, PAGE_PHOTO, PAGE_COUNT };
+enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_COUNT };
 static int page = PAGE_BUDDY;
 static bool canvasOk = false;
 
@@ -114,60 +111,59 @@ static void calDraw(Arduino_GFX *g) {
   uint32_t ms = millis();
   if (calStep == 2) {
     g->setFont(u8g2_font_helvB14_tf); g->setTextColor(C_TEXT);
-    centerOn(g, "Tack!", 120);
+    const int cx = SCREEN_W / 2;
+    centerOn(g, "Tack!", 98);
     g->setFont(u8g2_font_helvR10_tf); g->setTextColor(C_MUTED);
-    centerOn(g, "Nu vet jag vad som är upp.", 148);
-    g->fillRoundRect(96, 170, 48, 34, 9, C_ORANGE);
-    g->fillRect(108, 180, 6, 10, C_INK); g->fillRect(126, 180, 6, 10, C_INK);
+    centerOn(g, "Nu vet jag vad som är upp.", 126);
+    g->fillRoundRect(cx - 24, 146, 48, 34, 9, C_ORANGE);
+    g->fillRect(cx - 12, 156, 6, 10, C_INK); g->fillRect(cx + 6, 156, 6, 10, C_INK);
     return;
   }
   g->setFont(u8g2_font_helvR08_tf); g->setTextColor(C_MUTED);
-  centerOn(g, calStep == 0 ? "KALIBRERING  1 / 2" : "KALIBRERING  2 / 2", 46);
+  const int cx = SCREEN_W / 2;
+  centerOn(g, calStep == 0 ? "KALIBRERING  1 / 2" : "KALIBRERING  2 / 2", 34);
   g->setFont(u8g2_font_helvB12_tf); g->setTextColor(C_TEXT);
-  if (calStep == 0) { centerOn(g, "Lägg mig platt", 76); centerOn(g, "på bordet", 96); }
-  else { centerOn(g, "Håll mig upprätt", 76); centerOn(g, "framför dig", 96); }
+  if (calStep == 0) { centerOn(g, "Lägg mig platt", 62); centerOn(g, "på bordet", 82); }
+  else { centerOn(g, "Håll mig upprätt", 62); centerOn(g, "som jag sitter monterad", 82); }
 
   // illustration
   if (calStep == 0) {
-    g->fillRoundRect(40, 168, 160, 6, 3, C_MUTED);                 // table
-    g->fillRoundRect(70, 152, 100, 14, 5, C_ORANGE);               // board lying flat
+    g->fillRoundRect(cx - 80, 160, 160, 6, 3, C_MUTED);            // table
+    g->fillRoundRect(cx - 50, 144, 100, 14, 5, C_ORANGE);          // board lying flat
   } else {
     float bob = sinf(ms / 300.0f) * 3;
-    g->fillRoundRect(95, 122 + bob, 50, 64, 10, C_ORANGE);         // board standing
-    g->fillRect(108, 140 + bob, 6, 12, C_INK); g->fillRect(126, 140 + bob, 6, 12, C_INK);
+    g->fillRoundRect(cx - 32, 112 + bob, 64, 50, 10, C_ORANGE);    // board standing in its mount
+    g->fillRect(cx - 12, 126 + bob, 6, 12, C_INK); g->fillRect(cx + 6, 126 + bob, 6, 12, C_INK);
+    g->fillRoundRect(cx - 50, 164, 100, 4, 2, C_MUTED);            // floor
   }
 
   g->setFont(u8g2_font_helvR10_tf); g->setTextColor(C_MUTED);
-  centerOn(g, "...och tryck BOOT", 222);
+  centerOn(g, "...och tryck BOOT", 196);
   g->setFont(u8g2_font_helvR08_tf);
-  centerOn(g, "(eller PWR)", 240);
-  if (calCapturing) {
-    g->fillRoundRect(24, 104, 192, 26, 12, g->color565(140, 220, 160));
+  centerOn(g, "(eller PWR)", 213);
+  if (calCapturing || (calMsg && ms < calMsgUntil)) {
+    g->fillRoundRect(cx - 100, 92, 200, 26, 12, calCapturing ? g->color565(140, 220, 160) : g->color565(255, 214, 120));
     g->setFont(u8g2_font_helvB10_tf); g->setTextColor(C_INK);
-    centerOn(g, "Håll still...", 122);
-  } else if (calMsg && ms < calMsgUntil) {
-    g->fillRoundRect(24, 104, 192, 26, 12, g->color565(255, 214, 120));
-    g->setFont(u8g2_font_helvB10_tf); g->setTextColor(C_INK);
-    centerOn(g, calMsg, 122);
+    centerOn(g, calCapturing ? "Håll still..." : calMsg, 110);
   }
 }
 
-// ---------------- photo page ----------------
-static void drawPhoto() {
-#ifdef HAS_PHOTO
-  gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)PHOTO, SCREEN_W, SCREEN_H);
-#else
-  gfx->fillScreen(gfx->color565(8, 10, 16));
-  gfx->setFont(u8g2_font_helvB14_tf); gfx->setTextColor(WHITE);
-  gfx->setCursor(40, 130); gfx->print("Foto saknas");
-#endif
+static void drawStockPage() {
+  if (!canvasOk) return;
+  drawStock(canvas);
+  canvas->flush();
+}
+
+static void drawPulse() {
+  if (!canvasOk) return;
+  pulseDraw(canvas);
+  canvas->flush();
 }
 
 static void showPage() {
   backlight(255);
-  if (page == PAGE_SHOTS) shotsEnter();
-  if (page == PAGE_STOCK) drawStock();
-  else if (page == PAGE_PHOTO) drawPhoto();
+  if (page == PAGE_STOCK) drawStockPage();
+  else if (page == PAGE_PULSE) drawPulse();
 }
 
 // ---------------- serial test interface ----------------
@@ -175,23 +171,27 @@ static void showPage() {
 //   sim 1|0                         take over the buddy with injected sensors (deterministic 30 fps steps)
 //   sens gx gy gz wz wmag jerk jx jy ff still
 //   step N                          advance N frames
-//   dump                            raw RGB565 framebuffer: "FBDUMP 240 280\n" + 134400 bytes
+//   dump                            raw RGB565 panel framebuffer: "FBDUMP 240 280 <MOUNT_ROT>\n" + 134400 bytes
 //   page N | dbg | stat | calreset | calguess
+//   vp {json}                       VibePulse quota line from tools/vibepulse_bridge.py
 static bool simMode = false;
 static Sensors simS = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0};
-static char line[160]; static uint8_t lineLen = 0;
+static char line[768]; static uint16_t lineLen = 0;
 
-static bool canvasPage() { return page == PAGE_BUDDY || page == PAGE_SHOTS; }
+static bool canvasPage() { return page == PAGE_BUDDY; }
 
 static void renderBuddyFrame() {
   if (calStep >= 0) calDraw(canvas);
-  else if (page == PAGE_SHOTS) shotsDraw(canvas);
   else buddyDraw(canvas);
   canvas->flush();
 }
 
 static void handleCommand(char *c) {
-  if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
+  if (!strncmp(c, "vp ", 3)) {
+    if (pulseFeed(c + 3)) Serial.printf("ok %s\n", pulseDebug()); else Serial.println("err vp json");
+  }
+  else if (!strcmp(c, "vpdbg")) Serial.println(pulseDebug());
+  else if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
   else if (!strncmp(c, "sens ", 5)) {
     Sensors &s = simS;
     int n = sscanf(c + 5, "%f %f %f %f %f %f %f %f %f %f", &s.gx, &s.gy, &s.gz, &s.wz, &s.wmag, &s.jerk, &s.jx, &s.jy, &s.freefallMs, &s.stillSec);
@@ -199,16 +199,16 @@ static void handleCommand(char *c) {
   } else if (!strncmp(c, "step ", 5)) {
     int n = atoi(c + 5);
     for (int i = 0; i < n; i++) {
-      if (page == PAGE_SHOTS) shotsUpdate(simS, 1.0f / 30); else buddyUpdate(simS, 1.0f / 30);
+      buddyUpdate(simS, 1.0f / 30);
       if (simS.stillSec > 0) simS.stillSec += 1.0f / 30;
     }
     renderBuddyFrame();
     static uint32_t nStep = 0;
-    Serial.printf("ok step #%u %s\n", ++nStep, page == PAGE_SHOTS ? shotsDebug() : buddyDebug());
+    Serial.printf("ok step #%u %s\n", ++nStep, buddyDebug());
   } else if (!strcmp(c, "dump")) {
     if (!canvasOk) { Serial.println("err no canvas"); return; }
-    Serial.printf("FBDUMP %d %d\n", SCREEN_W, SCREEN_H);
-    Serial.write((uint8_t *)canvas->getFramebuffer(), SCREEN_W * SCREEN_H * 2);
+    Serial.printf("FBDUMP %d %d %d\n", PANEL_W, PANEL_H, MOUNT_ROT);
+    Serial.write((uint8_t *)canvas->getFramebuffer(), PANEL_W * PANEL_H * 2);
     Serial.flush();
     Serial.println("\nEND");
   } else if (!strncmp(c, "page ", 5)) { page = atoi(c + 5) % PAGE_COUNT; showPage(); Serial.println("ok"); }
@@ -223,7 +223,6 @@ static void handleCommand(char *c) {
                   screenFrame.X[0], screenFrame.X[1], screenFrame.X[2], screenFrame.Y[0], screenFrame.Y[1], screenFrame.Y[2],
                   screenFrame.Z[0], screenFrame.Z[1], screenFrame.Z[2], se.gx, se.gy, se.gz);
   }
-  else if (!strcmp(c, "next")) { shotsNext(); Serial.println("ok next"); }
   else if (!strcmp(c, "calpress")) { if (calStep == 0 || calStep == 1) { calConfirm(); Serial.printf("ok calpress step=%d\n", calStep); } else Serial.println("err not calibrating"); }
   else if (!strcmp(c, "calstep")) Serial.printf("ok calstep=%d capturing=%d\n", calStep, calCapturing);
   else if (!strcmp(c, "calsave")) { frameSave(); Serial.println("ok saved"); }
@@ -256,6 +255,7 @@ static void pollSerial() {
 // ---------------- setup / loop ----------------
 void setup() {
   Serial.setTxBufferSize(4096);
+  Serial.setRxBufferSize(1024);   // "vp {json}" lines are ~300 bytes; the HWCDC default of 256 drops the tail
   Serial.begin(115200);
 
   pinMode(PWR_PIN, INPUT_PULLUP);
@@ -271,6 +271,7 @@ void setup() {
   gfx->setUTF8Print(true);
   gfx->fillScreen(BLACK);
   canvasOk = canvas->begin(GFX_SKIP_OUTPUT_BEGIN);
+  canvas->setRotation(MOUNT_ROT);
   canvas->setUTF8Print(true);
   Serial.printf("canvas=%d heap=%u maxblk=%u\n", canvasOk, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
 
@@ -278,7 +279,6 @@ void setup() {
   imuBegin();
   if (!frameLoad()) calStart();
   buddyInit();
-  shotsInit();
   stockBegin();
   showPage();
 }
@@ -293,12 +293,12 @@ void loop() {
   } else {
     if (p == 1) { page = (page + 1) % PAGE_COUNT; sfx::click(); showPage(); }
     if (page == PAGE_BUDDY && bt == 1) buddyBootShort();
-    if (page == PAGE_SHOTS && bt == 1) shotsNext();
     if (page == PAGE_BUDDY && bt == 2) { calStart(); sfx::click(); }
   }
   if (calStep == 2 && millis() - calDoneAt > 1800) { calStep = -1; buddySay("Nu kör vi!", 2, 3); }
 
-  if (page == PAGE_STOCK && stockConsumeDirty()) drawStock();
+  if (page == PAGE_STOCK && stockConsumeDirty()) drawStockPage();
+  if (page == PAGE_PULSE && pulseWantsDraw()) drawPulse();
 
   if (canvasPage() && canvasOk && !simMode) {
     static uint32_t last = millis();
@@ -310,15 +310,15 @@ void loop() {
     calTick();
     if (calStep < 0) {
       Sensors s = sensorsFromImu(snap, dt);
-      if (page == PAGE_SHOTS) { shotsUpdate(s, dt); backlight(255); }
-      else { buddyUpdate(s, dt); backlight(buddyAsleep() ? 40 : 255); }
+      buddyUpdate(s, dt);
+      backlight(buddyAsleep() ? 40 : 255);
     }
     renderBuddyFrame();
 
     static uint32_t frames = 0, nextLog = 0;
     frames++;
     if (now > nextLog) {
-      Serial.printf("fps=%.1f heap=%u %s\n", frames / 5.0f, ESP.getFreeHeap(), page == PAGE_SHOTS ? shotsDebug() : buddyDebug());
+      Serial.printf("fps=%.1f heap=%u %s\n", frames / 5.0f, ESP.getFreeHeap(), buddyDebug());
       frames = 0; nextLog = now + 5000;
     }
   } else {
