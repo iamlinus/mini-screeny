@@ -105,8 +105,11 @@
 
   <section>
     <h2>Lagervärde (Airtable)</h2>
-    <label for="alink">Länk till tabellen eller vyn i Airtable</label>
-    <input type="text" id="alink" placeholder="https://airtable.com/app…/tbl…/viw…" autocomplete="off">
+    <div class="chosen" id="ainfo"></div>
+    <div id="alinkbox" style="display:none">
+      <label for="alink">Länk till tabellen eller vyn i Airtable</label>
+      <input type="text" id="alink" placeholder="https://airtable.com/app…/tbl…/viw…" autocomplete="off">
+    </div>
     <label for="atoken">Läsnyckel (personal access token)</label>
     <input type="password" id="atoken" autocomplete="off" spellcheck="false">
     <div class="hint" id="akey"></div>
@@ -196,7 +199,14 @@ async function loadState(first) {
     .concat(d.pages.filter(p => !on.includes(p.id)).map(p => ({id: p.id, label: p.label, on: false})));
   renderPages();
   const a = d.airtable || {};
-  if (a.base && a.table) $("alink").value = `https://airtable.com/${a.base}/${a.table}` + (a.view ? `/${a.view}` : "");
+  const known = a.base && a.table;     // already set up: just say where the data comes from
+  $("alinkbox").style.display = known ? "none" : "block";
+  if (known) {
+    const link = document.createElement("a"); link.target = "_blank"; link.rel = "noopener";
+    link.href = `https://airtable.com/${a.base}/${a.table}` + (a.view ? `/${a.view}` : "");
+    link.textContent = "Production Overview i Airtable"; link.style.color = "var(--accent)";
+    $("ainfo").replaceChildren("Hämtar från ", link);
+  } else $("ainfo").replaceChildren();
   $("akey").textContent = a.has_key ? "Nyckel sparad ✓" : "Ingen nyckel sparad än.";
   wantTeam = c.fotboll.lag || "";
   if (teamsLoaded) selectTeam();
