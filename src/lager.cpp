@@ -51,22 +51,29 @@ const char *lagerDebug() {
 
 static void swComma(char *s) { for (; *s; s++) if (*s == '.') *s = ','; }
 
-// A change in kr as "+123 tkr" / "-1,25 Mkr"; under 500 kr counts as unchanged.
-static void fmtDelta(double d, char *out, size_t n) {
-  double a = fabs(d);
-  const char *sg = d < 0 ? "-" : "+";
-  if (a < 500) snprintf(out, n, "0 kr");
-  else if (a >= 1e6) snprintf(out, n, "%s%.2f Mkr", sg, a / 1e6);
-  else snprintf(out, n, "%s%.0f tkr", sg, a / 1e3);
-  swComma(out);
+// kr as whole Kkr with a space between thousands: 12010000 -> "12 010"
+static void fmtKkr(double kr, char *out, size_t n) {
+  long k = lround(fabs(kr) / 1000.0);
+  char t[16]; snprintf(t, sizeof t, "%ld", k);
+  int len = strlen(t), o = 0;
+  for (int i = 0; i < len && o < (int)n - 2; i++) {
+    if (i && (len - i) % 3 == 0) out[o++] = ' ';
+    out[o++] = t[i];
+  }
+  out[o] = 0;
 }
 
-// A stock value in kr as "12,4 Mkr" / "830 tkr"
+// A change in kr as "+110 Kkr" / "-1 250 Kkr"; under 500 kr counts as unchanged.
+static void fmtDelta(double d, char *out, size_t n) {
+  if (fabs(d) < 500) { snprintf(out, n, "0 Kkr"); return; }
+  char k[16]; fmtKkr(d, k, sizeof k);
+  snprintf(out, n, "%s%s Kkr", d < 0 ? "-" : "+", k);
+}
+
+// A stock value in kr as "4 310 Kkr"
 static void fmtValue(double v, char *out, size_t n) {
-  if (v >= 1e7) snprintf(out, n, "%.1f Mkr", v / 1e6);
-  else if (v >= 1e6) snprintf(out, n, "%.2f Mkr", v / 1e6);
-  else snprintf(out, n, "%.0f tkr", v / 1e3);
-  swComma(out);
+  char k[16]; fmtKkr(v, k, sizeof k);
+  snprintf(out, n, "%s Kkr", k);
 }
 
 static void centerText(Arduino_GFX *g, const char *s, int cx, int y) {
@@ -121,33 +128,25 @@ void drawLager(Arduino_GFX *g) {
   g->setTextColor(TEXT);
   centerText(g, "LAGERVÄRDE", cx, 42);
 
-  // total, big, with the unit after it
+  // total in Kkr, big, thousands drawn as separate groups (the digits-only font has no space), unit after
   double tot = d.e + d.o;
-  char big[16], unit[6];
-  if (tot >= 1e7) { snprintf(big, sizeof big, "%.1f", tot / 1e6); strcpy(unit, "Mkr"); }
-  else if (tot >= 1e6) { snprintf(big, sizeof big, "%.2f", tot / 1e6); strcpy(unit, "Mkr"); }
-  else { snprintf(big, sizeof big, "%.0f", tot / 1e3); strcpy(unit, "tkr"); }
-  char *dot = strchr(big, '.');
-  char dec[4] = "";
-  if (dot) { *dot = 0; strlcpy(dec, dot + 1, sizeof dec); }
-  int16_t xi, xd, xs, y1; uint16_t wi, hi, wd = 0, hd, ws, hs;
+  char big[16], grp[4][8]; int ng = 0;
+  fmtKkr(tot, big, sizeof big);
+  for (char *tok = strtok(big, " "); tok && ng < 4; tok = strtok(nullptr, " ")) strlcpy(grp[ng++], tok, sizeof grp[0]);
+  int16_t gx[4], y1, xs; uint16_t gw[4], gh, ws, hs;
+  const int sp = 16, gap = 8, baseY = 100;
   g->setFont(u8g2_font_logisoso38_tn);
-  g->getTextBounds(big, 0, 0, &xi, &y1, &wi, &hi);
-  if (dec[0]) g->getTextBounds(dec, 0, 0, &xd, &y1, &wd, &hd);
+  int totalW = 0;
+  for (int i = 0; i < ng; i++) { g->getTextBounds(grp[i], 0, 0, &gx[i], &y1, &gw[i], &gh); totalW += gw[i] + (i ? sp : 0); }
   g->setFont(u8g2_font_helvR10_tf);
-  g->getTextBounds(unit, 0, 0, &xs, &y1, &ws, &hs);
-  const int dotW = dec[0] ? 12 : 0, gap = 8, baseY = 100;
-  int x0 = cx - (int)(wi + dotW + wd + gap + ws) / 2;
+  g->getTextBounds("Kkr", 0, 0, &xs, &y1, &ws, &hs);
+  int x = cx - (totalW + gap + ws) / 2;
   g->setFont(u8g2_font_logisoso38_tn);
   g->setTextColor(TEXT);
-  g->setCursor(x0 - xi, baseY); g->print(big);
-  if (dec[0]) {
-    g->fillCircle(x0 + wi + dotW / 2, baseY - 3, 3, TEXT);   // the comma, drawn (the digits-only font has none)
-    g->setCursor(x0 + wi + dotW - xd, baseY); g->print(dec);
-  }
+  for (int i = 0; i < ng; i++) { g->setCursor(x - gx[i], baseY); g->print(grp[i]); x += gw[i] + sp; }
   g->setFont(u8g2_font_helvR10_tf);
   g->setTextColor(MUTED);
-  g->setCursor(x0 + wi + dotW + wd + gap - xs, baseY); g->print(unit);
+  g->setCursor(x - sp + gap - xs, baseY); g->print("Kkr");
 
   // change against the last day we have a reading for
   const int pw = 190, ph = 28, px = cx - pw / 2, py = 114;
@@ -176,9 +175,9 @@ void drawLager(Arduino_GFX *g) {
 
   // the two groups
   g->drawFastHLine(L, 158, R - L, SURFACE);
-  drawRow(g, "E", d.e, d.pe, d.hasPrev, 182, L, R);
+  drawRow(g, "EMV", d.e, d.pe, d.hasPrev, 182, L, R);
   g->drawFastHLine(L, 194, R - L, SURFACE);
-  drawRow(g, "Övriga", d.o, d.po, d.hasPrev, 218, L, R);
+  drawRow(g, "A/B", d.o, d.po, d.hasPrev, 218, L, R);
   if (d.hasPrev && d.prevDay[0]) {
     char f[24]; snprintf(f, sizeof f, "mot %s", d.prevDay);
     g->setFont(u8g2_font_helvR08_tf);

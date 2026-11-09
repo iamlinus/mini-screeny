@@ -182,4 +182,4 @@ if __name__ == "__main__":
     recs = fetch_records(s)
     e, o, rows, dupes = classify(recs)
     print(f"{rows} rader, {dupes} dubbellänkade lagerposter hoppade över")
-    print(f"E {e:,.0f} kr   Övriga {o:,.0f} kr   Totalt {e + o:,.0f} kr")
+    print(f"EMV {e:,.0f} kr   A/B {o:,.0f} kr   Totalt {e + o:,.0f} kr")

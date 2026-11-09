@@ -19,5 +19,5 @@ namn = "Kjell Group"
 id = 1276742
 
 [sidor]
-# Vilka sidor som visas och i vilken ordning (PWR bläddrar). Möjliga: "gubben", "aktie", "claude", "fotboll"
-visa = ["gubben", "aktie", "claude", "fotboll"]
+# Vilka sidor som visas och i vilken ordning (PWR bläddrar). Möjliga: "gubben", "aktie", "claude", "fotboll", "lager" (Lagervärde, kräver airtable.toml)
+visa = ["gubben", "aktie", "claude", "lager"]
