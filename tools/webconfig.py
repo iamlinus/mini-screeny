@@ -4,6 +4,7 @@
   GET  /api/state     current settings + status (board connected?, how fresh each page's data is)
   GET  /api/teams     teams in Allsvenskan/Superettan for the team picker
   GET  /api/stocks?q= Avanza stock search
+  POST /api/update    {"action":"check"} look for news on GitHub, otherwise git pull (tools/updater.py)
   POST /api/config    save settings -> config.toml (the companion picks the change up by itself)
 
 Only reachable from this Mac (bound to 127.0.0.1). The Host header must be localhost (no DNS
@@ -16,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import config
 import football
 import lager
+import updater
 import stock
 
 PORT = 8740
@@ -66,7 +68,7 @@ def make_handler(status_fn, log):
                         self._send(200, f.read(), "text/html; charset=utf-8")
                 elif url.path == "/api/state":
                     c = config.load(log)
-                    self._send(200, {"config": c, "airtable": lager.public_settings(), "pages": [{"id": k, "label": PAGE_LABELS[k]} for k in config.PAGES],
+                    self._send(200, {"config": c, "airtable": lager.public_settings(), "update": updater.info(), "pages": [{"id": k, "label": PAGE_LABELS[k]} for k in config.PAGES],
                                      "status": status_fn()})
                 elif url.path == "/api/teams":
                     self._send(200, {"teams": _teams_cached()})
@@ -82,7 +84,7 @@ def make_handler(status_fn, log):
         def do_POST(self):
             if not self._host_ok():
                 return
-            if self.path != "/api/config":
+            if self.path not in ("/api/config", "/api/update"):
                 return self._send(404, {"error": "finns inte"})
             if self.headers.get("Origin") not in allowed_origins or \
                     not self.headers.get("Content-Type", "").startswith("application/json"):
@@ -92,6 +94,12 @@ def make_handler(status_fn, log):
                 if n > 10000:
                     return self._send(413, {"error": "för stort"})
                 d = json.loads(self.rfile.read(n) or b"{}")
+                if self.path == "/api/update":
+                    if d.get("action") == "check":
+                        updater.check()
+                        return self._send(200, {"ok": True, "update": updater.info()})
+                    res = updater.apply(log)
+                    return self._send(200 if res["ok"] else 409, res if res["ok"] else {"error": res["error"]} | {"ok": False})
                 namn = str(d.get("namn", "")).strip()[:20]
                 lag = str(d.get("lag", "")).strip()[:40]
                 kort = str(d.get("kort", "")).strip()[:8]

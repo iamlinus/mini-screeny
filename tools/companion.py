@@ -40,6 +40,7 @@ import lager
 import stock
 import config
 import webconfig
+import updater
 
 MAX_LINE = 700        # the board's line buffer is 768 bytes including the tag
 REPO_URL = "https://github.com/iamlinus/mini-screeny"
@@ -320,6 +321,7 @@ def main():
         }
     if not args.once:
         webconfig.start(status, log)
+        updater.start(log)
     sent = {}                   # tag -> version last sent on this connection
     last_tx = 0.0
     waiting_logged = False

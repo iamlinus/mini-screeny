@@ -122,6 +122,17 @@
     <ul class="pages" id="pages"></ul>
   </section>
 
+  <section>
+    <h2>Uppdatering</h2>
+    <div id="upd">Kollar ...</div>
+    <ul id="updlist" class="hint" style="margin:8px 0 0 18px;padding:0"></ul>
+    <div class="save" style="margin-top:14px">
+      <button id="updgo" style="display:none">Uppdatera nu</button>
+      <button id="updcheck" style="background:var(--surface);color:var(--text)">Sök efter uppdatering</button>
+      <span id="updmsg" role="status"></span>
+    </div>
+  </section>
+
   <div class="save">
     <button id="spara">Spara</button>
     <span id="msg" role="status"></span>
@@ -179,6 +190,46 @@ function renderPages() {
   }));
 }
 
+function renderUpdate(u) {
+  if (!u || updating) return;
+  const box = $("upd"), list = $("updlist");
+  list.replaceChildren(...(u.commits || []).map(c => { const li = document.createElement("li"); li.textContent = c; return li; }));
+  $("updgo").style.display = u.behind ? "" : "none";
+  let t;
+  if (u.error) t = "Kunde inte söka: " + u.error;
+  else if (u.checked_ago == null) t = "Kollar ...";
+  else if (u.behind) t = `Ny version finns (${u.behind} ändring${u.behind > 1 ? "ar" : ""}):`;
+  else t = "Du har den senaste versionen ✓";
+  if (u.behind && u.firmware) t += " Den innehåller ny firmware för skärmen, som måste flashas med USB-kabel.";
+  box.textContent = t;
+}
+
+async function updPost(body) {
+  const r = await fetch("/api/update", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || "Misslyckades");
+  return d;
+}
+let updating = false;
+$("updcheck").onclick = async () => {
+  const m = $("updmsg"); m.className = ""; m.textContent = "Söker ...";
+  $("updcheck").disabled = true;
+  try { const d = await updPost({action: "check"}); m.textContent = ""; renderUpdate(d.update); }
+  catch (e) { m.className = "err"; m.textContent = e.message; }
+  $("updcheck").disabled = false;
+};
+$("updgo").onclick = async () => {
+  const m = $("updmsg"); m.className = ""; m.textContent = "Uppdaterar ...";
+  $("updgo").disabled = true; $("updcheck").disabled = true; updating = true;
+  try {
+    const d = await updPost({action: "apply"});
+    let t = d.restart ? "Uppdaterat. Startar om, sidan laddas om strax ..." : "Uppdaterat. Starta om companion för att ta det i bruk (tools/companion_launchagent.sh restart).";
+    if (d.deps) t += " Beroenden har ändrats: kör install.sh.";
+    m.className = "ok"; m.textContent = t;
+    if (d.restart) setTimeout(function wait() { fetch("/api/state").then(r => r.ok ? location.reload() : setTimeout(wait, 2000)).catch(() => setTimeout(wait, 2000)); }, 6000);
+  } catch (e) { m.className = "err"; m.textContent = e.message; updating = false; $("updgo").disabled = false; $("updcheck").disabled = false; }
+};
+
 function renderStock() {
   $("chosen").replaceChildren();
   if (!stock.name && !stock.id) return;
@@ -189,6 +240,7 @@ function renderStock() {
 async function loadState(first) {
   const r = await fetch("/api/state"); const d = await r.json();
   renderStatus(d.status);
+  renderUpdate(d.update);
   if (!first) return;
   const c = d.config;
   $("namn").value = c.namn || "";
