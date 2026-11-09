@@ -24,11 +24,11 @@
   h2 { font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
   label:first-of-type { margin-top: 0; }
-  input[type=text], select {
+  input[type=text], input[type=password], select {
     width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 9px;
     padding: 10px 12px; font: inherit; outline: none;
   }
-  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  input[type=text]:focus, input[type=password]:focus, select:focus { border-color: var(--accent); }
   .row { display: flex; gap: 10px; } .row > * { flex: 1; } .row > .narrow { flex: 0 0 120px; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .status { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 12px; align-items: center; font-size: 14px; }
