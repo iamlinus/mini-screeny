@@ -40,6 +40,7 @@ Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara 
 | `cfg {json}` | namn och sidordning från `config.toml` | 60 s och när filen ändras |
 | `stk {json}` | aktien i `config.toml`, från Avanza (`tools/stock.py`) | 60 s |
 | `fb {json}` | laget i `config.toml`, från `gql.sportomedia.se` (`tools/football.py`) | vid start, sedan 1 h |
+| `lag {json}` | Lagervärde från Airtable, E / Övriga mot föregående dag (`tools/lager.py`) | vid start, sedan 1 h |
 
 Senaste data skickas om varje varv, och allt skickas direkt när kortet startar om (det skriver `mini-screeny boot`). Om en källa inte svarar skickas inget. Kortet behåller då de senaste värdena och pricken blir grå.
 
@@ -54,6 +55,8 @@ Logg: `~/Library/Logs/mini-screeny-companion.log`. Kör den manuellt med `.venv/
 
 **Kvoterna** (`tools/quota.py`) är lånade från [VibePulse](https://github.com/niclasvestlund-YT/vibepulse) av Niclas Vestlund (MIT, se `tools/LICENSE.vibepulse`). Ingen VibePulse-server behövs:
 - **Claude**: Claude Codes inloggning (Claude Desktop eller Nyckelringens "Claude Code-credentials") används mot Anthropics usage-anrop, som bara läser. Det görs högst var 4:e minut, med paus på minst 10 minuter om API:et svarar 429, eftersom kvoten delas med Claude Code. Frågar macOS om Nyckelringen, välj *Tillåt alltid*. Tokenen loggas aldrig.
+
+**Lagervärde-sidan** (sida 4, kräver en Airtable-nyckel): kopiera `airtable.example.toml` till `airtable.toml` (git-ignorerad) och fyll i en läsnyckel (`data.records:read`, bara den basen) samt bas/tabell/vy. Summerar Lagervärde över raderna i vyn, delat på Brand Group Code `E` / övriga, varje lagerpost räknad en gång. Högre är dåligt (rött), lägre bra (grönt). Airtable har ingen historik, så companion sparar ett värde per dag i `tools/out/lager_history.json` och jämför mot senaste tidigare dag. Första dagen visas ingen jämförelse. Lagervärdet ändras bara när lager-Excelen laddas upp. Testa utan nyckel: `tools/sim.py lager` (påhittade siffror).
 
 **Ny datakälla**: skriv en funktion som returnerar en dict, lägg till den i `SOURCES` i `companion.py` och lägg till ett serial-kommando för taggen i firmwaren (som `stk` i `main.cpp`).
 

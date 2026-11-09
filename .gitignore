@@ -9,3 +9,4 @@ tools/out/
 compile_commands.json
 __pycache__/
 .cache/
+airtable.toml

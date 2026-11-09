@@ -7,6 +7,7 @@ source, "<tag> {json}". Every source runs in its own thread, so a slow fetch nev
   cfg  name + page order from config.toml (the board stores them), every 60 s and when the file changes
   vp   Claude quota windows, read on this Mac (tools/quota.py, adapted from VibePulse), every 30 s
   stk  the stock in config.toml, Avanza's public endpoints (tools/stock.py), every 60 s
+  lag  Lagervärde from Airtable: E / other + yesterday (tools/lager.py), at start + hourly
   fb   the football team in config.toml: table, next match, last result (tools/football.py), at start + hourly
 
 Sources whose page is switched off in config.toml fetch nothing.
@@ -35,6 +36,7 @@ import serial
 import boardport as bp
 import quota
 import football
+import lager
 import stock
 import config
 import webconfig
@@ -89,6 +91,10 @@ def fetch_stock(args):
 def fetch_football(args):
     c = config.load(log)["fotboll"]
     return football.fetch(c.get("lag") or "HIF", c.get("kort") or "")
+
+
+def fetch_lager(args):
+    return lager.fetch()
 
 
 def fetch_cfg(args):
@@ -171,6 +177,7 @@ SOURCES = [
     Source("vp", 30, fetch_vibepulse, page="claude"),
     Source("stk", 60, fetch_stock, page="aktie"),
     Source("fb", 3600, fetch_football, page="fotboll"),   # at start, then hourly
+    Source("lag", 3600, fetch_lager, page="lager"),       # changes only when the stock Excel is uploaded
 ]
 
 
@@ -302,7 +309,7 @@ def main():
 
     def status():
         now = time.time()
-        labels = {"claude": "Claude-kvoter", "aktie": "Aktien", "fotboll": "Fotboll"}
+        labels = {"claude": "Claude-kvoter", "aktie": "Aktien", "fotboll": "Fotboll", "lager": "Lagervärde"}
         return {
             "board": {"connected": board.ser is not None, "port": board.port if board.ser else "",
                       "paused": bool(bp.pause_holder())},

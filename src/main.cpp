@@ -11,6 +11,7 @@
 #include "stock.h"
 #include "pulse.h"
 #include "football.h"
+#include "lager.h"
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include "link.h"
@@ -23,12 +24,12 @@ Arduino_Canvas *canvas = new Arduino_Canvas(PANEL_W, PANEL_H, gfx);
 
 void backlight(uint8_t level) { ledcWrite(LEDC_BL, level); }
 
-enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_FOOTBALL, PAGE_COUNT };   // numbers = config.PAGES in tools/config.py
+enum Page { PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_FOOTBALL, PAGE_LAGER, PAGE_COUNT };   // numbers = config.PAGES in tools/config.py
 static int page = PAGE_BUDDY;
 
 // ---------------- settings from config.toml (via the companion's "cfg" line), kept in NVS ----------------
-static uint8_t order[PAGE_COUNT] = {PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_FOOTBALL};
-static uint8_t nOrder = PAGE_COUNT;
+static uint8_t order[PAGE_COUNT] = {PAGE_BUDDY, PAGE_STOCK, PAGE_PULSE, PAGE_FOOTBALL};   // PAGE_LAGER only when config.toml asks for it
+static uint8_t nOrder = PAGE_COUNT - 1;
 static char ownerName[24] = "";
 
 static void settingsLoad() {
@@ -210,6 +211,13 @@ static void drawFootball() {
   canvas->flush();
 }
 
+static void drawLagerPage() {
+  if (!canvasOk) return;
+  drawLager(canvas);
+  drawToast(canvas);
+  canvas->flush();
+}
+
 static void drawPulse() {
   if (!canvasOk) return;
   pulseDraw(canvas);
@@ -222,6 +230,7 @@ static void showPage() {
   if (page == PAGE_STOCK) drawStockPage();
   else if (page == PAGE_PULSE) drawPulse();
   else if (page == PAGE_FOOTBALL) drawFootball();
+  else if (page == PAGE_LAGER) drawLagerPage();
 }
 
 // ---------------- serial test interface ----------------
@@ -234,6 +243,7 @@ static void showPage() {
 //   vp {json}                       VibePulse quota line from tools/companion.py
 //   stk {json}                      Kjell stock quote (Avanza fields) from tools/companion.py
 //   fb {json}                       football team table/next/last from tools/companion.py
+//   lag {json}                      Lagervärde E/other + baseline from tools/companion.py
 //   cfg {json}                      {"name": owner, "pages": [page numbers in PWR order]} from config.toml
 //   nvswipe                         erase the NVS partition, keep calibration + mute (one-off cleanup)
 //   ping                            keep-alive from the companion (no reply)
@@ -322,6 +332,9 @@ static void handleCommand(char *c) {
   else if (!strncmp(c, "fb ", 3)) {
     if (footballFeed(c + 3)) Serial.printf("ok %s\n", footballDebug()); else Serial.println("err fb json");
   }
+  else if (!strncmp(c, "lag ", 4)) {
+    if (lagerFeed(c + 4)) Serial.printf("ok %s\n", lagerDebug()); else Serial.println("err lag json");
+  }
   else if (!strncmp(c, "cfg ", 4)) applyConfig(c + 4);
   else if (!strncmp(c, "stk ", 4)) {
     if (stockFeed(c + 4)) Serial.printf("ok %s\n", stockDebug()); else Serial.println("err stk json");
@@ -337,7 +350,7 @@ static void handleCommand(char *c) {
   }
   else if (!strncmp(c, "bootclicks ", 11)) { bootClicks = atoi(c + 11); bootLast = millis(); Serial.println("ok bootclicks"); }   // test: N BOOT presses
   else if (!strcmp(c, "ping")) {}       // companion keep-alive: only marks contact (linkSeen), no reply
-  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse,football up=%lus\n", millis() / 1000);
+  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse,football,lager up=%lus\n", millis() / 1000);
   else if (!strcmp(c, "vpdbg")) Serial.println(pulseDebug());
   else if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
   else if (!strncmp(c, "sens ", 5)) {
@@ -466,6 +479,7 @@ void loop() {
   if (page == PAGE_STOCK && stockConsumeDirty()) drawStockPage();
   if (page == PAGE_PULSE && pulseWantsDraw()) drawPulse();
   if (page == PAGE_FOOTBALL && footballConsumeDirty()) drawFootball();
+  if (page == PAGE_LAGER && lagerConsumeDirty()) drawLagerPage();
 
   if (canvasPage() && canvasOk && !simMode) {
     static uint32_t last = millis();

@@ -19,7 +19,7 @@ import stock
 
 PORT = 8740
 HERE = os.path.dirname(os.path.abspath(__file__))
-PAGE_LABELS = {"gubben": "Gubben", "aktie": "Aktien", "claude": "Claude-kvoter", "fotboll": "Fotboll"}
+PAGE_LABELS = {"gubben": "Gubben", "aktie": "Aktien", "claude": "Claude-kvoter", "fotboll": "Fotboll", "lager": "Lagervärde"}
 
 _teams = {"at": 0, "list": []}
 

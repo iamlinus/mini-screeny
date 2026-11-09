@@ -8,13 +8,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH = os.path.join(ROOT, "config.toml")
 
 # page names in config.toml -> page numbers in the firmware (enum Page in src/main.cpp)
-PAGES = {"gubben": 0, "aktie": 1, "claude": 2, "fotboll": 3}
+PAGES = {"gubben": 0, "aktie": 1, "claude": 2, "fotboll": 3, "lager": 4}
+DEFAULT_ON = ["gubben", "aktie", "claude", "fotboll"]   # lager needs an Airtable key: off until asked for
 
 DEFAULTS = {
     "namn": "",
     "fotboll": {"lag": "Helsingborgs IF", "kort": ""},
     "aktie": {"namn": "Kjell Group", "id": None},
-    "sidor": {"visa": list(PAGES)},
+    "sidor": {"visa": list(DEFAULT_ON)},
 }
 
 _cache = {"mtime": None, "cfg": None, "error": None}
@@ -44,7 +45,7 @@ def _load(log):
                     cfg[k].update(v)
                 else:
                     cfg[k] = v
-        pages = [p for p in cfg["sidor"].get("visa", []) if p in PAGES] or list(PAGES)
+        pages = [p for p in cfg["sidor"].get("visa", []) if p in PAGES] or list(DEFAULT_ON)
         cfg["sidor"]["visa"] = pages
         if _cache["cfg"] is not None or _cache["error"]:
             log(f"config: loaded {PATH}")
@@ -70,7 +71,7 @@ def _q(s):
 
 def save(namn, lag, kort, aktie, aktie_id, visa):
     """Write config.toml (the same layout and comments as the hand-written file)."""
-    visa = [p for p in visa if p in PAGES] or list(PAGES)
+    visa = [p for p in visa if p in PAGES] or list(DEFAULT_ON)
     id_line = f"id = {int(aktie_id)}" if aktie_id else "# id = 1276742"
     text = f'''# mini screeny – inställningar
 # Ändra här eller på http://localhost:8740 (companion-servern). Ändringar slår igenom inom en minut.
@@ -93,7 +94,7 @@ namn = {_q(aktie)}
 {id_line}
 
 [sidor]
-# Vilka sidor som visas och i vilken ordning (PWR bläddrar). Möjliga: "gubben", "aktie", "claude", "fotboll"
+# Vilka sidor som visas och i vilken ordning (PWR bläddrar). Möjliga: "gubben", "aktie", "claude", "fotboll", "lager" (Lagervärde, kräver airtable.toml)
 visa = [{", ".join(_q(p) for p in visa)}]
 '''
     tmp = PATH + ".tmp"

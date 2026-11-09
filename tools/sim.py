@@ -54,7 +54,7 @@ def cmd(s, c, wait_ok=True, timeout=6.0):
     t = time.time()
     while time.time() - t < timeout:
         ln = s.readline().decode(errors="replace").strip()
-        if ln.startswith(("ok", "err", "heap=", "pos=", "up=", "type=", "vp any=", "stk any=")):
+        if ln.startswith(("ok", "err", "heap=", "pos=", "up=", "type=", "vp any=", "stk any=", "lag any=")):
             return ln
     return "(timeout)"
 
@@ -250,6 +250,32 @@ def run_fb():
     print("sheet:", out)
 
 
+# Invented numbers (never real stock values: the repo is public). e/o = kr now, pe/po = kr at the baseline.
+LAGER_CASES = [
+    ("ned", {"e": 4200000, "o": 7650000, "t": 11850000, "pe": 4310000, "po": 7700000, "pd": "8/11"}),
+    ("upp", {"e": 4400000, "o": 7800000, "t": 12200000, "pe": 4310000, "po": 7700000, "pd": "6/11"}),
+    ("lika", {"e": 4310000, "o": 7700000, "t": 12010000, "pe": 4310000, "po": 7700000, "pd": "8/11"}),
+    ("första-dagen", {"e": 4310000, "o": 7700000, "t": 12010000}),
+    ("under-10-Mkr", {"e": 830000, "o": 6200000, "t": 7030000, "pe": 900000, "po": 6100000, "pd": "8/11"}),
+]
+
+
+def run_lager():
+    import json
+    os.makedirs(OUT, exist_ok=True)
+    s = open_port()
+    print(cmd(s, "page 4"))
+    paths, labels = [], []
+    for name, payload in LAGER_CASES:
+        print(name, cmd(s, "lag " + json.dumps(payload, separators=(",", ":"), ensure_ascii=False)))
+        time.sleep(0.4)
+        p = os.path.join(OUT, f"lager_{name}.png")
+        shot(s, p)
+        paths.append(p); labels.append(name)
+    out = contact(paths, labels, os.path.join(OUT, "lager_sheet.png"), cols=3)
+    print("sheet:", out)
+
+
 def run_pulse():
     import json
     os.makedirs(OUT, exist_ok=True)
@@ -306,6 +332,8 @@ if __name__ == "__main__":
         run_pulse()
     elif what == "fb":
         run_fb()
+    elif what == "lager":
+        run_lager()
     elif what == "flash":
         pause_companion()
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
