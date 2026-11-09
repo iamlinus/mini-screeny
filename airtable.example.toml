@@ -1,7 +1,0 @@
-# Lagervärde-sidan hämtar från Airtable. Kopiera till airtable.toml (den filen checkas aldrig in).
-# Nyckeln: ett personal access token med bara behörigheten data.records:read på just den här basen.
-[airtable]
-token = "pat..."
-base  = "app..."
-table = "tbl..."          # Production Overview
-view  = "viw..."          # valfritt: vyn som avgör vilka rader som räknas

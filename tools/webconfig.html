@@ -104,6 +104,16 @@
   </section>
 
   <section>
+    <h2>Lagervärde (Airtable)</h2>
+    <label for="alink">Länk till tabellen eller vyn i Airtable</label>
+    <input type="text" id="alink" placeholder="https://airtable.com/app…/tbl…/viw…" autocomplete="off">
+    <label for="atoken">Läsnyckel (personal access token)</label>
+    <input type="password" id="atoken" autocomplete="off" spellcheck="false">
+    <div class="hint" id="akey"></div>
+    <div class="hint">Nyckeln behöver bara läsrättigheten <i>data.records:read</i> på den basen. Den sparas på den här datorn (i en fil som bara du kan läsa och som aldrig checkas in) och visas aldrig igen. Lämna fältet tomt för att behålla den som finns.</div>
+  </section>
+
+  <section>
     <h2>Sidor</h2>
     <label>Vilka sidor som visas och i vilken ordning PWR-knappen bläddrar</label>
     <ul class="pages" id="pages"></ul>
@@ -185,6 +195,9 @@ async function loadState(first) {
   pages = on.map(id => ({id, label: d.pages.find(p => p.id === id).label, on: true}))
     .concat(d.pages.filter(p => !on.includes(p.id)).map(p => ({id: p.id, label: p.label, on: false})));
   renderPages();
+  const a = d.airtable || {};
+  if (a.base && a.table) $("alink").value = `https://airtable.com/${a.base}/${a.table}` + (a.view ? `/${a.view}` : "");
+  $("akey").textContent = a.has_key ? "Nyckel sparad ✓" : "Ingen nyckel sparad än.";
   wantTeam = c.fotboll.lag || "";
   if (teamsLoaded) selectTeam();
 }
@@ -233,12 +246,13 @@ $("spara").onclick = async () => {
   try {
     const body = {
       namn: $("namn").value.trim(), lag: $("lag").value, kort: $("kort").value.trim(),
-      aktie: stock.name, aktie_id: stock.id, visa: pages.filter(p => p.on).map(p => p.id),
+      aktie: stock.name, aktie_id: stock.id, airtable: {link: $("alink").value.trim(), token: $("atoken").value.trim()}, visa: pages.filter(p => p.on).map(p => p.id),
     };
     const r = await fetch("/api/config", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "Kunde inte spara");
     msg.className = "ok"; msg.textContent = "Sparat. Skärmen uppdateras om några sekunder.";
+    $("atoken").value = ""; $("akey").textContent = "Nyckel sparad ✓";
     setTimeout(() => loadState(false), 4000);
   } catch (e) { msg.className = "err"; msg.textContent = e.message; }
   $("spara").disabled = false;

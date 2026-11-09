@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
 import football
+import lager
 import stock
 
 PORT = 8740
@@ -65,7 +66,7 @@ def make_handler(status_fn, log):
                         self._send(200, f.read(), "text/html; charset=utf-8")
                 elif url.path == "/api/state":
                     c = config.load(log)
-                    self._send(200, {"config": c, "pages": [{"id": k, "label": PAGE_LABELS[k]} for k in config.PAGES],
+                    self._send(200, {"config": c, "airtable": lager.public_settings(), "pages": [{"id": k, "label": PAGE_LABELS[k]} for k in config.PAGES],
                                      "status": status_fn()})
                 elif url.path == "/api/teams":
                     self._send(200, {"teams": _teams_cached()})
@@ -107,6 +108,10 @@ def make_handler(status_fn, log):
                         return self._send(400, {"error": f"Hittar inget lag som heter \"{lag}\"."})
                 if "aktie" in visa and not aktie and not aktie_id:
                     return self._send(400, {"error": "Välj en aktie."})
+                at = d.get("airtable") or {}
+                link, token = str(at.get("link", "")).strip()[:300], str(at.get("token", "")).strip()[:200]
+                if link or token:
+                    lager.save_settings(link, token)
                 config.save(namn, lag, kort, aktie, aktie_id, visa)
                 log(f"settings saved from the web page (name '{namn}', team '{lag}', stock '{aktie}', pages {visa})")
                 self._send(200, {"ok": True})

@@ -6,7 +6,7 @@ the base/table/view ids live in airtable.toml in the repo root (git-ignored) or 
 Airtable keeps no history, so every fetch is written to tools/out/lager_history.json (one entry per
 local date, the latest reading of that day). "Yesterday" is the newest date before today.
 """
-import datetime, json, os, time, tomllib, urllib.error, urllib.parse, urllib.request
+import datetime, json, os, re, time, tomllib, urllib.error, urllib.parse, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH = os.path.join(ROOT, "airtable.toml")
@@ -36,8 +36,46 @@ def settings():
         if os.environ.get(e):
             s[k] = os.environ[e]
     if not s.get("token") or not s.get("base") or not s.get("table"):
-        raise NoKey("ingen Airtable-nyckel: skapa airtable.toml (se airtable.example.toml)")
+        raise NoKey("ingen Airtable-nyckel: klistra in den på inställningssidan")
     return s
+
+
+def _read_file():
+    try:
+        with open(PATH, "rb") as f:
+            return tomllib.load(f).get("airtable", {})
+    except (FileNotFoundError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def public_settings():
+    """What the settings page may see: never the token itself."""
+    s = _read_file()
+    return {"has_key": bool(s.get("token")), "base": s.get("base", ""), "table": s.get("table", ""), "view": s.get("view", "")}
+
+
+def parse_link(text):
+    """(base, table, view) ids from an Airtable address like airtable.com/appX/tblY/viwZ?..., missing ones empty."""
+    ids = [re.search(p, text or "") for p in (r"app[A-Za-z0-9]{14}", r"tbl[A-Za-z0-9]{14}", r"viw[A-Za-z0-9]{14}")]
+    return tuple(m.group(0) if m else "" for m in ids)
+
+
+def save_settings(link, token):
+    """Write airtable.toml (owner-only). An empty token keeps the saved one; an empty link keeps the saved ids."""
+    old = _read_file()
+    base, table, view = parse_link(link) if link else (old.get("base", ""), old.get("table", ""), old.get("view", ""))
+    token = (token or "").strip() or old.get("token", "")
+    if token and not re.fullmatch(r"pat[A-Za-z0-9]+\.[A-Za-z0-9]+", token):
+        raise ValueError("Nyckeln ser inte rätt ut (ska börja med pat och innehålla en punkt).")
+    if link and not (base and table):
+        raise ValueError("Länken ska peka på en tabell i Airtable (…/app…/tbl…).")
+    q = lambda v: json.dumps(v)
+    text = f"[airtable]\ntoken = {q(token)}\nbase = {q(base)}\ntable = {q(table)}\nview = {q(view)}\n"
+    tmp = PATH + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, PATH)
 
 
 def _get(s, params, timeout=20):
