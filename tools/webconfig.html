@@ -106,10 +106,6 @@
   <section>
     <h2>Lagervärde (Airtable)</h2>
     <div class="chosen" id="ainfo"></div>
-    <div id="alinkbox" style="display:none">
-      <label for="alink">Länk till tabellen eller vyn i Airtable</label>
-      <input type="text" id="alink" placeholder="https://airtable.com/app…/tbl…/viw…" autocomplete="off">
-    </div>
     <label for="atoken">Läsnyckel (personal access token)</label>
     <input type="password" id="atoken" autocomplete="off" spellcheck="false">
     <div class="hint" id="akey"></div>
@@ -251,14 +247,12 @@ async function loadState(first) {
     .concat(d.pages.filter(p => !on.includes(p.id)).map(p => ({id: p.id, label: p.label, on: false})));
   renderPages();
   const a = d.airtable || {};
-  const known = a.base && a.table;     // already set up: just say where the data comes from
-  $("alinkbox").style.display = known ? "none" : "block";
-  if (known) {
+  {   // fixed source, shown as info only
     const link = document.createElement("a"); link.target = "_blank"; link.rel = "noopener";
     link.href = `https://airtable.com/${a.base}/${a.table}` + (a.view ? `/${a.view}` : "");
     link.textContent = "Production Overview i Airtable"; link.style.color = "var(--accent)";
     $("ainfo").replaceChildren("Hämtar från ", link);
-  } else $("ainfo").replaceChildren();
+  }
   $("akey").textContent = a.has_key ? "Nyckel sparad ✓" : "Ingen nyckel sparad än.";
   wantTeam = c.fotboll.lag || "";
   if (teamsLoaded) selectTeam();
@@ -308,7 +302,7 @@ $("spara").onclick = async () => {
   try {
     const body = {
       namn: $("namn").value.trim(), lag: $("lag").value, kort: $("kort").value.trim(),
-      aktie: stock.name, aktie_id: stock.id, airtable: {link: $("alink").value.trim(), token: $("atoken").value.trim()}, visa: pages.filter(p => p.on).map(p => p.id),
+      aktie: stock.name, aktie_id: stock.id, airtable: {token: $("atoken").value.trim()}, visa: pages.filter(p => p.on).map(p => p.id),
     };
     const r = await fetch("/api/config", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
     const d = await r.json();

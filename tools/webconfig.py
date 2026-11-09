@@ -117,9 +117,9 @@ def make_handler(status_fn, log):
                 if "aktie" in visa and not aktie and not aktie_id:
                     return self._send(400, {"error": "Välj en aktie."})
                 at = d.get("airtable") or {}
-                link, token = str(at.get("link", "")).strip()[:300], str(at.get("token", "")).strip()[:200]
-                if link or token:
-                    lager.save_settings(link, token)
+                token = str(at.get("token", "")).strip()[:200]
+                if token:
+                    lager.save_settings(token)
                 config.save(namn, lag, kort, aktie, aktie_id, visa)
                 log(f"settings saved from the web page (name '{namn}', team '{lag}', stock '{aktie}', pages {visa})")
                 self._send(200, {"ok": True})

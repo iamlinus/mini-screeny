@@ -1,7 +1,7 @@
 """Lagervärde page: total stock value from Airtable, split Brand Group Code E / the rest, vs yesterday.
 
-Read-only against the Airtable REST API with a personal access token (data.records:read). The token and
-the base/table/view ids live in airtable.toml in the repo root (git-ignored) or in $AIRTABLE_TOKEN etc.
+Read-only against the Airtable REST API with a personal access token (data.records:read). The token lives in
+airtable.toml in the repo root (git-ignored), entered on the settings page, or in $AIRTABLE_TOKEN; the base/table/view are DEFAULTS.
 
 Airtable keeps no history, so every fetch is written to tools/out/lager_history.json (one entry per
 local date, the latest reading of that day). "Yesterday" is the newest date before today.
@@ -12,6 +12,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH = os.path.join(ROOT, "airtable.toml")
 HISTORY = os.path.join(ROOT, "tools", "out", "lager_history.json")
 KEEP_DAYS = 120
+# Production Overview (ids alone give no access; only the read key does, and that is entered on the settings page)
+DEFAULTS = {"base": "appKG5sw1IF49MNY6", "table": "tblOPu90P1PBsog8d", "view": "viwmoT5bMFisFNUo6"}
 
 F_VALUE = "Lagervärde (from Stock value (SKU))"     # lookup, one number per linked Stock Value record
 F_LINK = "Stock value (SKU)"                        # the linked Stock Value records
@@ -25,12 +27,8 @@ class NoKey(Exception):
 
 
 def settings():
-    s = {}
-    try:
-        with open(PATH, "rb") as f:
-            s = tomllib.load(f).get("airtable", {})
-    except FileNotFoundError:
-        pass
+    s = dict(DEFAULTS)
+    s.update({k: v for k, v in _read_file().items() if v})
     env = {"token": "AIRTABLE_TOKEN", "base": "AIRTABLE_BASE", "table": "AIRTABLE_TABLE", "view": "AIRTABLE_VIEW"}
     for k, e in env.items():
         if os.environ.get(e):
@@ -50,25 +48,18 @@ def _read_file():
 
 def public_settings():
     """What the settings page may see: never the token itself."""
-    s = _read_file()
-    return {"has_key": bool(s.get("token")), "base": s.get("base", ""), "table": s.get("table", ""), "view": s.get("view", "")}
+    s = dict(DEFAULTS)
+    s.update({k: v for k, v in _read_file().items() if v})
+    return {"has_key": bool(s.get("token")), "base": s["base"], "table": s["table"], "view": s["view"]}
 
 
-def parse_link(text):
-    """(base, table, view) ids from an Airtable address like airtable.com/appX/tblY/viwZ?..., missing ones empty."""
-    ids = [re.search(p, text or "") for p in (r"app[A-Za-z0-9]{14}", r"tbl[A-Za-z0-9]{14}", r"viw[A-Za-z0-9]{14}")]
-    return tuple(m.group(0) if m else "" for m in ids)
-
-
-def save_settings(link, token):
-    """Write airtable.toml (owner-only). An empty token keeps the saved one; an empty link keeps the saved ids."""
+def save_settings(token):
+    """Write airtable.toml (owner-only). An empty token keeps the saved one; ids stay as they are (default Production Overview)."""
     old = _read_file()
-    base, table, view = parse_link(link) if link else (old.get("base", ""), old.get("table", ""), old.get("view", ""))
+    base, table, view = (old.get(k) or DEFAULTS[k] for k in ("base", "table", "view"))
     token = (token or "").strip() or old.get("token", "")
     if token and not re.fullmatch(r"pat[A-Za-z0-9]+\.[A-Za-z0-9]+", token):
         raise ValueError("Nyckeln ser inte rätt ut (ska börja med pat och innehålla en punkt).")
-    if link and not (base and table):
-        raise ValueError("Länken ska peka på en tabell i Airtable (…/app…/tbl…).")
     q = lambda v: json.dumps(v)
     text = f"[airtable]\ntoken = {q(token)}\nbase = {q(base)}\ntable = {q(table)}\nview = {q(view)}\n"
     tmp = PATH + ".tmp"
