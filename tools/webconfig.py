@@ -6,10 +6,12 @@
   GET  /api/stocks?q= Avanza stock search
   POST /api/update    {"action":"check"} look for news on GitHub, otherwise git pull (tools/updater.py)
   POST /api/config    save settings -> config.toml (the companion picks the change up by itself)
+  POST /api/agent     a Claude Code hook event (tools/agents.py); sent by a hook script, never by a browser
 
 Only reachable from this Mac (bound to 127.0.0.1). The Host header must be localhost (no DNS
 rebinding), and a save must be a JSON POST from this page's own origin, so another web page open
-in the browser cannot change the settings.
+in the browser cannot change the settings. /api/agent is the other way round: it only takes requests
+without an Origin header, which a browser always adds to a cross-site POST and a hook's curl never does.
 """
 import json, os, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,7 +36,10 @@ def _teams_cached():
     return _teams["list"]
 
 
-def make_handler(status_fn, log):
+MAX_AGENT_BODY = 8 * 1024 * 1024   # a PostToolBatch event carries the tool output
+
+
+def make_handler(status_fn, log, agent_fn=None):
     allowed_hosts = {f"localhost:{PORT}", f"127.0.0.1:{PORT}"}
     allowed_origins = {f"http://{h}" for h in allowed_hosts}
 
@@ -81,9 +86,24 @@ def make_handler(status_fn, log):
             except Exception as e:
                 self._send(502, {"error": f"{type(e).__name__}: {e}"})
 
+        def _agent(self):
+            if not agent_fn or self.headers.get("Origin") is not None:
+                return self._send(403, {"error": "bara från en hook"})
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                if n > MAX_AGENT_BODY:
+                    return self._send(413, {"error": "för stort"})
+                d = json.loads(self.rfile.read(n) or b"{}")
+                ok = isinstance(d, dict) and agent_fn(d)
+            except (ValueError, json.JSONDecodeError):
+                ok = False
+            self._send(200 if ok else 400, {} if ok else {"error": "inget hook-event"})
+
         def do_POST(self):
             if not self._host_ok():
                 return
+            if self.path == "/api/agent":
+                return self._agent()
             if self.path not in ("/api/config", "/api/update"):
                 return self._send(404, {"error": "finns inte"})
             if self.headers.get("Origin") not in allowed_origins or \
@@ -129,9 +149,9 @@ def make_handler(status_fn, log):
     return H
 
 
-def start(status_fn, log, port=PORT):
+def start(status_fn, log, port=PORT, agent_fn=None):
     try:
-        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(status_fn, log))
+        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(status_fn, log, agent_fn))
     except OSError as e:
         log(f"settings page: cannot listen on port {port}: {e}")
         return None

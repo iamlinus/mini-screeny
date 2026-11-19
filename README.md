@@ -22,6 +22,18 @@ git clone https://github.com/iamlinus/mini-screeny.git ~/mini-screeny
 3. **Claude**: dina Claude-kvoter (5-timmarssessionen, veckan och, när Anthropic har en egen veckogräns för en modell, den modellens vecka), lästa direkt på Macen. Streck betyder att värdet saknas.
 4. **Fotboll**: lagets tabellplacering, dagar kvar till nästa match (H = hemma, B = borta) och senaste resultatet (V/O/F). Data från ligornas officiella källa (samma som allsvenskan.se och superettan.se), hämtas vid start och sedan varje timme.
 
+## Claude Code-status
+Skärmen visar vad dina Claude Code-sessioner på Macen gör, på alla sidor:
+- **Tänker**: gubben håller sig vaken med "..." över huvudet. På datasidorna syns en orange prick per session bredvid statuspricken.
+- **Klar**: gubben tar över skärmen några sekunder, jublar och säger "Klar: <mapp>", och lämnar sedan tillbaka sidan du hade. Turer under 15 sekunder slutar tyst.
+- **Väntar på dig** (behörighetsfråga eller annan fråga): gubben vinkar och säger "Väntar: <mapp>", och bär sedan ett gult "!" tills du har svarat. På datasidorna är pricken gul.
+
+Det bygger på Claude Codes hooks, som skickar sina händelser till companion-servern. Lägg in dem i `~/.claude/settings.json` för händelserna `UserPromptSubmit`, `PostToolBatch`, `Notification`, `Stop`, `StopFailure` och `SessionEnd`, alla med samma kommando:
+```sh
+curl -s -m 2 -o /dev/null -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:8740/api/agent 2>/dev/null; exit 0
+```
+Körs inte companion-servern händer ingenting; Claude Code påverkas inte. Tillståndet per session räknas ut i `tools/agents.py`, och `http://localhost:8740/api/state` visar under `status.agents` vad companion tror just nu. Testa på skärmen utan Claude: `tools/sim.py agents`.
+
 ## Inställningar
 Öppna **http://localhost:8740** i webbläsaren (när companion-servern körs). Där väljer du namn, fotbollslag (rullista), aktie (sök hos Avanza) och vilka sidor som visas och i vilken ordning, och ser om skärmen är ansluten och hur färsk datan är. Sidan går bara att nå från den egna Macen.
 
@@ -41,6 +53,8 @@ Kortet har inget nätverk. Det sitter i USB-uttaget på skärmen och visar bara 
 | `stk {json}` | aktien i `config.toml`, från Avanza (`tools/stock.py`) | 60 s |
 | `fb {json}` | laget i `config.toml`, från `gql.sportomedia.se` (`tools/football.py`) | vid start, sedan 1 h |
 | `lag {json}` | Lagervärde från Airtable, EMV / A/B mot föregående dag (`tools/lager.py`) | vid start, sedan 1 h |
+| `cc {json}` | Claude Code-sessioner: hur många som tänker och väntar (`tools/agents.py`) | när det ändras |
+| `cce {json}` | en session blev klar, väntar på dig eller fick stopp | i stunden, en gång |
 
 Senaste data skickas om varje varv, och allt skickas direkt när kortet startar om (det skriver `mini-screeny boot`). Om en källa inte svarar skickas inget. Kortet behåller då de senaste värdena och pricken blir grå.
 

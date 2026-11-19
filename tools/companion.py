@@ -9,6 +9,9 @@ source, "<tag> {json}". Every source runs in its own thread, so a slow fetch nev
   stk  the stock in config.toml, Avanza's public endpoints (tools/stock.py), every 60 s
   lag  Lagervärde from Airtable: E / other + yesterday (tools/lager.py), at start + hourly
   fb   the football team in config.toml: table, next match, last result (tools/football.py), at start + hourly
+  cc   Claude Code sessions on this Mac: how many are thinking / waiting for the user (tools/agents.py).
+       Not fetched: Claude Code's hooks post their events to the settings page's server. "cce" lines
+       are the moments themselves (done, needs you), sent once.
 
 Sources whose page is switched off in config.toml fetch nothing.
 
@@ -35,6 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import serial
 import boardport as bp
 import quota
+import agents
 import football
 import lager
 import stock
@@ -182,11 +186,15 @@ SOURCES = [
 ]
 
 
+AGENTS = agents.Agents(log)
+
+
 # ---------------- board link ----------------
 class Board:
     def __init__(self):
         self.ser = None
         self.port = None
+        self.hello = ""         # the board's answer to "hello": which firmware features it has
         self.lost = threading.Event()
         self.booted = threading.Event()
 
@@ -200,6 +208,7 @@ class Board:
             log(f"cannot open {port}: {e}")
             return False
         self.port = port
+        self.hello = ""
         self.lost.clear()
         threading.Thread(target=self._reader, args=(self.ser,), daemon=True).start()
         log(f"connected to {port}")
@@ -259,6 +268,8 @@ class Board:
                 log("board booted, resending everything")
                 self.booted.set()
             elif ln.startswith(("ok hello", "err", "wifi credentials")):
+                if ln.startswith("ok hello"):
+                    self.hello = ln
                 log(f"board: {ln}")
 
 
@@ -318,15 +329,17 @@ def main():
                          "age": int(now - s.ok_at) if s.ok_at else None,
                          "error": "ingen data" if s.ok is False and not s.error else s.error}
                         for s in SOURCES if s.page],
+            "agents": AGENTS.summary(),
         }
     if not args.once:
-        webconfig.start(status, log)
+        webconfig.start(status, log, agent_fn=AGENTS.event)
         updater.start(log)
     sent = {}                   # tag -> version last sent on this connection
     last_tx = 0.0
     waiting_logged = False
     try:
         while True:
+            AGENTS.tick()
             # someone else (sim.py, flashing) needs the port
             if bp.pause_holder():
                 if board.ser:
@@ -357,11 +370,21 @@ def main():
             if board.booted.is_set():
                 board.booted.clear()
                 sent.clear()
+                board.send(b"hello\n")      # new firmware may have new features
             for src in SOURCES:
                 ver, line = src.version, src.line    # version first: a racing update is just resent
                 if line and sent.get(src.tag) != ver:
                     if board.send(line):
                         sent[src.tag] = ver
+                        last_tx = time.time()
+            # Claude Code sessions, only for firmware that knows the lines (older ones answer "err unknown")
+            if "feat=agents" in board.hello:
+                ver, line = AGENTS.version, AGENTS.line
+                if sent.get("cc") != ver and board.send(line):
+                    sent["cc"] = ver
+                    last_tx = time.time()
+                for line in AGENTS.take_events():
+                    if board.send(line):
                         last_tx = time.time()
             if time.time() - last_tx >= PING_EVERY_S and board.send(b"ping\n"):
                 last_tx = time.time()

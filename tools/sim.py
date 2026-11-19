@@ -6,6 +6,7 @@
   sim.py scenario NAME                    run a scripted scenario, writes tools/out/NAME_*.png + contact sheet
   sim.py pulse                            VibePulse page with test payloads -> tools/out/pulse_sheet.png
   sim.py fb                               football page with test payloads -> tools/out/fb_sheet.png
+  sim.py agents                           Claude Code status (thinking, done, waiting) -> tools/out/agents_sheet.png
   sim.py flash                            build + flash the firmware (pauses the companion meanwhile)
 
 If tools/companion.py is running it is paused automatically while sim.py holds the port.
@@ -292,6 +293,39 @@ def run_pulse():
     print("sheet:", out)
 
 
+# Claude Code status: the "cc" (state) and "cce" (event) lines the companion sends, see tools/agents.py.
+AGENT_STEPS = [
+    ("calm", None, 30),
+    ("thinking", 'cc {"n":1,"w":0}', 20), ("thinking +0.3s", None, 9),
+    ("done", 'cce {"e":"done","t":"mini screeny","s":140}', 6), ("done +0.5s", None, 15), ("done +2s", None, 45),
+    ("ask", 'cc {"n":1,"w":1,"t":"AgentTerminal"}', 0), ("ask shown", 'cce {"e":"ask","t":"AgentTerminal"}', 12),
+    ("waiting", None, 260), ("waiting, says who", None, 420),
+    ("fail", 'cce {"e":"fail","t":"Adam"}', 12),
+]
+
+
+def run_agents():
+    """The dots on a data page, then Clawd through a turn: thinking, done, waiting for the user, an error."""
+    os.makedirs(OUT, exist_ok=True)
+    s = open_port()
+    paths, labels = [], []
+    print(cmd(s, "page 2"), cmd(s, 'cc {"n":2,"w":1,"t":"AgentTerminal"}'))
+    time.sleep(1.3)   # the quota page redraws at most once a second
+    paths.append(shot(s, os.path.join(OUT, "agents_00.png"))); labels.append("data page: 1 waiting, 2 working")
+    print(cmd(s, 'cc {"n":0,"w":0}'), cmd(s, "page 0"), cmd(s, "sim 1"), cmd(s, "reset"))
+    sens(s, gy=1)
+    for i, (label, line, frames) in enumerate(AGENT_STEPS, 1):
+        if line:
+            print(f"{label:18s} {cmd(s, line)}")
+        if not frames:
+            continue
+        r = step(s, frames)
+        paths.append(shot(s, os.path.join(OUT, f"agents_{i:02d}.png"))); labels.append(label)
+        print(f"{label:18s} {r}")
+    print(cmd(s, 'cc {"n":0,"w":0}'), cmd(s, "sim 0"))   # the companion sends the real state when it gets the port back
+    print("sheet:", contact(paths, labels, os.path.join(OUT, "agents_sheet.png")))
+
+
 def run_scenario(name):
     os.makedirs(OUT, exist_ok=True)
     s = open_port()
@@ -334,6 +368,8 @@ if __name__ == "__main__":
         run_fb()
     elif what == "lager":
         run_lager()
+    elif what == "agents":
+        run_agents()
     elif what == "flash":
         pause_companion()
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

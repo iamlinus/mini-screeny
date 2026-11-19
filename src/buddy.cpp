@@ -60,6 +60,9 @@ float gnx = 0, gny = -1;                  // normal of the supporting wall
 float gdx = 0, gdy = 1, gmag = 1;         // effective gravity direction
 float sayLeft = 0; char sayBuf[48] = ""; int sayPrio = 0;
 float alertHold = 0;   // an alert is showing: no yawning, no falling asleep
+int agThink = 0, agWait = 0; char agTitle[20] = "";   // Claude Code sessions on the Mac (buddySetAgents)
+float nagIn = 0;       // until he next says who is waiting
+float cheerLeft = 0;   // celebrating a finished turn
 float chatIn = 6;
 float wanderIn = 4, wanderGoal = -1, walkPhase = 0, walkSpeed = 0;
 float waveLeft = 0;
@@ -211,10 +214,33 @@ static void wake(bool loud) {
   if (loud) sfx::chirp();
 }
 
-void buddyAlert(const char *msg, float sec) {
+void buddyAlert(const char *msg, float sec, bool wave) {
   wake(false);                 // no sound: alerts are for the eyes only
   say(msg, sec, 9);
   alertHold = sec;
+  if (wave) { waveLeft = sec; fright = fmaxf(fright, 0.7f); }
+}
+
+void buddyCheer(const char *msg, float sec) {
+  wake(false);
+  say(msg, sec, 9);
+  alertHold = sec;
+  cheerLeft = fminf(sec, 3.0f);
+  if (grounded) { b.vx -= gdx * 300; b.vy -= gdy * 300; }
+  for (int i = 0; i < 8; i++) {
+    float a = frange(-1.1f, 1.1f);                       // a fan of sparkles away from the floor
+    float ux = -gdx * cosf(a) + gdy * sinf(a), uy = -gdy * cosf(a) - gdx * sinf(a);
+    spawn(P_SPARK, b.x + ux * 50, b.y + uy * 50, ux * frange(50, 110), uy * frange(50, 110), frange(0.7f, 1.2f));
+  }
+}
+
+void buddySetAgents(int thinking, int waiting, const char *waitingTitle) {
+  bool was = agThink > 0 || agWait > 0;
+  if (waiting > 0 && agWait == 0) nagIn = 20;            // the "ask" alert says it first
+  agThink = thinking < 0 ? 0 : thinking;
+  agWait = waiting < 0 ? 0 : waiting;
+  strlcpy(agTitle, waitingTitle ? waitingTitle : "", sizeof agTitle);
+  if (!was && (agThink > 0 || agWait > 0)) wake(false);
 }
 
 void buddyUpdate(const Sensors &s, float dt) {
@@ -301,10 +327,11 @@ void buddyUpdate(const Sensors &s, float dt) {
 
   // sleep after a long still period (only while calm)
   bool calm = dizzy < 0.2f && shake < 0.2f && anger < 0.3f && screamLeft <= 0;
+  bool busy = agThink > 0 || agWait > 0;   // Claude is working or waiting on the Mac: stay awake and show it
   alertHold -= dt;
-  if (alertHold > 0) yawned = true;   // skip the yawn that would come right after
-  if (!asleep && alertHold <= 0 && calm && grounded && s.stillSec > 22 && !yawned) { yawned = true; say("*gäsp*", 2.5f, 1); sfx::yawn(); yawnLeft = 1.6f; }
-  if (!asleep && alertHold <= 0 && calm && grounded && s.stillSec > 27) { asleep = true; sayLeft = 0; }
+  if (alertHold > 0 || busy) yawned = true;   // skip the yawn that would come right after
+  if (!asleep && alertHold <= 0 && !busy && calm && grounded && s.stillSec > 22 && !yawned) { yawned = true; say("*gäsp*", 2.5f, 1); sfx::yawn(); yawnLeft = 1.6f; }
+  if (!asleep && alertHold <= 0 && !busy && calm && grounded && s.stillSec > 27) { asleep = true; sayLeft = 0; }
   if (asleep && (moving || s.jerk > 0.12f)) wake(true);
   if (!asleep && s.stillSec < 1) yawned = false;
 
@@ -463,8 +490,21 @@ void buddyUpdate(const Sensors &s, float dt) {
   floatT = (gmag < 0.2f && s.freefallMs <= 0 && !grounded) ? floatT + dt : 0;
   if (floatT > 1.2f && cdFloat <= 0) { say(pick(M_FLOAT), 2.0f, 1); cdFloat = 12; }
 
-  // idle chatter
-  if (calm && grounded && !asleep) {
+  // a session is waiting for the user: say which one now and then
+  if (agWait > 0) {
+    nagIn -= dt;
+    if (nagIn <= 0 && sayLeft <= 0) {
+      char m[48];
+      if (agTitle[0]) snprintf(m, sizeof m, "Väntar: %s", agTitle); else strcpy(m, "Claude väntar på dig");
+      say(m, 3.0f, 2);
+      waveLeft = 2.2f;
+      nagIn = 25;
+    }
+  }
+  if (cheerLeft > 0) { cheerLeft -= dt; joy = 1.0f; }
+
+  // idle chatter (not while Claude is busy: then the bubble is for that)
+  if (calm && grounded && !asleep && !busy) {
     chatIn -= dt;
     if (chatIn <= 0) {
       const char *m = pick(M_IDLE);
@@ -491,6 +531,7 @@ void buddyUpdate(const Sensors &s, float dt) {
   float lx = clampf(b.vx / 250, -1, 1) * 5 + sinf(t * 0.7f) * 2.5f;
   float ly = clampf(b.vy / 250, -1, 1) * 3;
   if (walkSpeed != 0) lx = (walkSpeed > 0 ? 4 : -4);
+  else if (agThink > 0 && agWait == 0) ly -= 3;   // thinking: eyes up
   lookX += (lx - lookX) * fminf(1, dt * 6);
   lookY += (ly - lookY) * fminf(1, dt * 6);
 
@@ -656,6 +697,7 @@ void buddyDraw(Arduino_GFX *g) {
     if (asleep) el = -0.6f;
     else if (danceLeft > 0) el = (((int)beatPhase + (side > 0)) % 2) ? 1.2f : -0.5f;
     else if (screamLeft > 0) el = 1.25f + sinf(t * 28 + side) * 0.35f;
+    else if (cheerLeft > 0) el = 1.15f + sinf(t * 16 + side) * 0.3f;
     else if (!grounded && airT > 0.15f) el = 0.9f + sinf(t * 22 + side * 1.3f) * 0.5f;
     else if (anger > 0.8f) el = -0.7f + sinf(t * 40) * 0.08f;
     else if (dizzy > 0.45f) el = sinf(t * 5 + side) * 0.5f;
@@ -756,6 +798,23 @@ void buddyDraw(Arduino_GFX *g) {
     }
   }
 
+  // ---- Claude on the Mac: "!" while a session waits for the user, "..." while one is thinking ----
+  if (sayLeft <= 0 && !asleep) {
+    if (agWait > 0) {
+      float bob = sinf(t * 5) * 2.5f, cy = -BH / 2 - 20 + bob;
+      circleL(g, xf, 0, cy, 12, theme::WARN);
+      rrect(g, xf, 0, cy - 3, 4, 11, 2, 0, INK);
+      circleL(g, xf, 0, cy + 7, 2.4f, INK);
+    } else if (agThink > 0) {
+      rrect(g, xf, 0, -BH / 2 - 17, 46, 20, 10, 0, WHITE_);
+      for (int k = 0; k < 3; k++) {
+        float ph = fmodf(t * 1.5f - k * 0.16f + 1, 1.0f);
+        float up = ph < 0.4f ? sinf(ph / 0.4f * PI_F) * 4 : 0;
+        circleL(g, xf, (k - 1) * 12, -BH / 2 - 17 - up, 3.2f, INK);
+      }
+    }
+  }
+
   // ---- particles ----
   for (auto &p : parts) {
     if (!p.on) continue;
@@ -796,7 +855,7 @@ void buddyDraw(Arduino_GFX *g) {
 
 const char *buddyDebug() {
   static char buf[160];
-  snprintf(buf, sizeof buf, "pos=(%.0f,%.0f) v=(%.0f,%.0f) th=%.2f gr=%d dz=%.2f sh=%.2f an=%.2f sl=%d say='%s'",
-           b.x, b.y, b.vx, b.vy, b.th, grounded, dizzy, shake, anger, asleep, sayLeft > 0 ? sayBuf : "");
+  snprintf(buf, sizeof buf, "pos=(%.0f,%.0f) v=(%.0f,%.0f) th=%.2f gr=%d dz=%.2f sh=%.2f an=%.2f sl=%d ag=%d/%d say='%s'",
+           b.x, b.y, b.vx, b.vy, b.th, grounded, dizzy, shake, anger, asleep, agThink, agWait, sayLeft > 0 ? sayBuf : "");
   return buf;
 }

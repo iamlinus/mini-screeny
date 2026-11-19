@@ -2,6 +2,8 @@
 // Pages (PWR): Claude buddy, stock, Claude quota (VibePulse), football team; which ones and in what
 // order comes from config.toml on the Mac ("cfg" line), stored in NVS.  BOOT: once = refresh all data, twice = settings page on the Mac, three times = GitHub; long press on the buddy page = recalibrate.
 // No network on the board: tools/companion.py on the Mac fetches the data and sends it over USB serial.
+// Claude Code sessions on the Mac show on every page ("cc" / "cce" lines): dots while they work or wait, and
+// Clawd takes the screen for a moment when one is done or needs the user.
 #include "board.h"
 #include <nvs_flash.h>
 #include "imu.h"
@@ -197,9 +199,27 @@ static void drawToast(Arduino_GFX *g) {
   g->print(toastMsg);
 }
 
+// ---------------- Claude Code sessions on the Mac ----------------
+static int agThinking = 0, agWaiting = 0;   // from the companion's "cc" line
+static int peekBack = -1;                   // page to go back to after Clawd has shown an event; -1 = not peeking
+static uint32_t peekUntil = 0;
+
+// One dot per session, going left from (x, y): yellow with a "!" = waiting for you, orange = working.
+// Sits left of a data page's link mark.
+static void drawAgentMark(Arduino_GFX *g, int x, int y) {
+  int k = 0;
+  for (int i = 0; i < agWaiting && k < 4; i++, k++) {
+    g->fillCircle(x - k * 13, y, 5, theme::WARN);
+    g->fillRect(x - k * 13 - 1, y - 3, 2, 4, theme::INK);
+    g->fillRect(x - k * 13 - 1, y + 2, 2, 2, theme::INK);
+  }
+  for (int i = 0; i < agThinking && k < 4; i++, k++) g->fillCircle(x - k * 13, y, 4, theme::ACCENT);
+}
+
 static void drawStockPage() {
   if (!canvasOk) return;
   drawStock(canvas);
+  drawAgentMark(canvas, SCREEN_W - 46, 31);
   drawToast(canvas);
   canvas->flush();
 }
@@ -207,6 +227,7 @@ static void drawStockPage() {
 static void drawFootball() {
   if (!canvasOk) return;
   footballDraw(canvas);
+  drawAgentMark(canvas, SCREEN_W - 40, 22);
   drawToast(canvas);
   canvas->flush();
 }
@@ -214,6 +235,7 @@ static void drawFootball() {
 static void drawLagerPage() {
   if (!canvasOk) return;
   drawLager(canvas);
+  drawAgentMark(canvas, SCREEN_W - 46, 31);
   drawToast(canvas);
   canvas->flush();
 }
@@ -221,6 +243,7 @@ static void drawLagerPage() {
 static void drawPulse() {
   if (!canvasOk) return;
   pulseDraw(canvas);
+  drawAgentMark(canvas, SCREEN_W - 40, 22);
   drawToast(canvas);
   canvas->flush();
 }
@@ -245,6 +268,8 @@ static void showPage() {
 //   fb {json}                       football team table/next/last from tools/companion.py
 //   lag {json}                      Lagervärde E/other + baseline from tools/companion.py
 //   cfg {json}                      {"name": owner, "pages": [page numbers in PWR order]} from config.toml
+//   cc {json}                       Claude Code sessions: {"n": thinking, "w": waiting for the user, "t": project of the one waiting}
+//   cce {json}                      one just finished or needs the user: {"e": "done"|"ask"|"fail", "t": project, "s": seconds}
 //   nvswipe                         erase the NVS partition, keep calibration + mute (one-off cleanup)
 //   ping                            keep-alive from the companion (no reply)
 // Board -> companion: "evt refresh" (BOOT once) = fetch everything now,
@@ -325,8 +350,46 @@ static void applyConfig(const char *json) {
   Serial.printf("ok cfg name='%s' pages=%d%s\n", ownerName, nOrder, changed ? " (saved)" : "");
 }
 
+// "cc {json}": how many Claude Code sessions are thinking / waiting. Sent when it changes and on reconnect.
+static void applyAgents(const char *json) {
+  JsonDocument d;
+  if (deserializeJson(d, json)) { Serial.println("err cc json"); return; }
+  int n = constrain(d["n"] | 0, 0, 99), w = constrain(d["w"] | 0, 0, 99);
+  bool changed = n != agThinking || w != agWaiting;
+  agThinking = n; agWaiting = w;
+  buddySetAgents(n, w, d["t"] | "");
+  if (changed && page != PAGE_BUDDY) showPage();   // the dots on the data pages
+  Serial.printf("ok cc n=%d w=%d\n", n, w);
+}
+
+// "cce {json}": a session finished its turn, needs the user, or stopped on an error. Clawd says it; from
+// another page he takes the screen while he does and then hands it back.
+static void agentEvent(const char *json) {
+  JsonDocument d;
+  if (deserializeJson(d, json)) { Serial.println("err cce json"); return; }
+  const char *e = d["e"] | "", *t = d["t"] | "";
+  char msg[40];
+  float sec = 8;
+  bool done = !strcmp(e, "done");
+  if (done) { snprintf(msg, sizeof msg, t[0] ? "Klar: %s" : "Klar!", t); sec = 6; }
+  else if (!strcmp(e, "ask")) snprintf(msg, sizeof msg, t[0] ? "Väntar: %s" : "Claude väntar på dig", t);
+  else if (!strcmp(e, "fail")) snprintf(msg, sizeof msg, t[0] ? "Stopp: %s" : "Claude fick stopp", t);
+  else { Serial.println("err cce e"); return; }
+  if (calStep >= 0) { Serial.println("ok cce (calibrating)"); return; }
+  if (orderIndex(PAGE_BUDDY) < 0) toast(msg, (uint32_t)(sec * 1000));   // no buddy page: a toast where we are
+  else {
+    if (page != PAGE_BUDDY) { if (peekBack < 0) peekBack = page; page = PAGE_BUDDY; backlight(255); }
+    if (peekBack >= 0) peekUntil = millis() + (uint32_t)(sec * 1000) + 300;
+    if (done) buddyCheer(msg, sec); else buddyAlert(msg, sec, true);
+  }
+  if (done) sfx::tada(); else if (!strcmp(e, "ask")) sfx::chirp(); else sfx::grumble();
+  Serial.printf("ok cce %s\n", e);
+}
+
 static void handleCommand(char *c) {
-  if (!strncmp(c, "vp ", 3)) {
+  if (!strncmp(c, "cc ", 3)) applyAgents(c + 3);
+  else if (!strncmp(c, "cce ", 4)) agentEvent(c + 4);
+  else if (!strncmp(c, "vp ", 3)) {
     if (pulseFeed(c + 3)) Serial.printf("ok %s\n", pulseDebug()); else Serial.println("err vp json");
   }
   else if (!strncmp(c, "fb ", 3)) {
@@ -350,7 +413,7 @@ static void handleCommand(char *c) {
   }
   else if (!strncmp(c, "bootclicks ", 11)) { bootClicks = atoi(c + 11); bootLast = millis(); Serial.println("ok bootclicks"); }   // test: N BOOT presses
   else if (!strcmp(c, "ping")) {}       // companion keep-alive: only marks contact (linkSeen), no reply
-  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse,football,lager up=%lus\n", millis() / 1000);
+  else if (!strcmp(c, "hello")) Serial.printf("ok hello mini-screeny pages=buddy,stock,pulse,football,lager feat=agents up=%lus\n", millis() / 1000);
   else if (!strcmp(c, "vpdbg")) Serial.println(pulseDebug());
   else if (!strncmp(c, "sim ", 4)) { simMode = atoi(c + 4); Serial.printf("ok sim=%d\n", simMode); }
   else if (!strncmp(c, "sens ", 5)) {
@@ -372,7 +435,7 @@ static void handleCommand(char *c) {
     Serial.write((uint8_t *)canvas->getFramebuffer(), PANEL_W * PANEL_H * 2);
     Serial.flush();
     Serial.println("\nEND");
-  } else if (!strncmp(c, "page ", 5)) { page = atoi(c + 5) % PAGE_COUNT; showPage(); Serial.println("ok"); }
+  } else if (!strncmp(c, "page ", 5)) { page = atoi(c + 5) % PAGE_COUNT; peekBack = -1; showPage(); Serial.println("ok"); }
   else if (!strcmp(c, "dbg")) Serial.println(buddyDebug());
   else if (!strncmp(c, "calfrom ", 8)) {
     float u1[3], u2[3];
@@ -455,7 +518,7 @@ void loop() {
   if (calStep == 0 || calStep == 1) {
     if (p == 1 || bt == 1) calConfirm();
   } else {
-    if (p == 1) { int i = orderIndex(page); page = order[(i + 1) % nOrder]; sfx::click(); showPage(); }
+    if (p == 1) { int i = orderIndex(page); page = order[(i + 1) % nOrder]; peekBack = -1; sfx::click(); showPage(); }
     // BOOT short presses are counted (a press acts ~0.4 s after the last one):
     // one = fetch all data now, two = settings page on the Mac, three = the project on GitHub.
     if (bt == 1) { bootClicks++; bootLast = millis(); }
@@ -476,6 +539,12 @@ void loop() {
     else toast(a, 5000);
   }
   if (toastShown && millis() >= toastUntil) { toastShown = false; if (page != PAGE_BUDDY) showPage(); }
+  // Clawd has shown a Claude Code event: back to the page he borrowed the screen from
+  if (peekBack >= 0 && millis() >= peekUntil) {
+    page = orderIndex(peekBack) >= 0 ? peekBack : order[0];
+    peekBack = -1;
+    showPage();
+  }
   if (page == PAGE_STOCK && stockConsumeDirty()) drawStockPage();
   if (page == PAGE_PULSE && pulseWantsDraw()) drawPulse();
   if (page == PAGE_FOOTBALL && footballConsumeDirty()) drawFootball();
