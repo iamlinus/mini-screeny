@@ -119,6 +119,16 @@
   </section>
 
   <section>
+    <h2>Claude Code-status</h2>
+    <div id="hk">Kollar ...</div>
+    <div class="hint">Gubben visar när Claude Code tänker, väntar på dig eller är klar. Det kräver en hook i dina Claude Code-inställningar (<i>~/.claude/settings.json</i>). Den gäller Claude Code överallt på den här datorn: terminalen, editorn och Code-läget i Claude Desktop, i sessioner som startar efter att den lagts in. Andra inställningar och hooks rörs inte.</div>
+    <div class="save" style="margin-top:14px">
+      <button id="hkgo">Lägg in</button>
+      <span id="hkmsg" role="status"></span>
+    </div>
+  </section>
+
+  <section>
     <h2>Uppdatering</h2>
     <div id="upd">Kollar ...</div>
     <ul id="updlist" class="hint" style="margin:8px 0 0 18px;padding:0"></ul>
@@ -200,6 +210,36 @@ function renderUpdate(u) {
   box.textContent = t;
 }
 
+let hk = null;
+function renderHooks(h) {
+  if (!h) return;
+  hk = h;
+  let t;
+  if (h.error) t = "Kan inte läsa inställningarna: " + h.error;
+  else if (h.installed) t = "Inlagd ✓";
+  else if (h.partly) t = "Delvis inlagd (saknas för " + h.missing.join(", ") + ").";
+  else t = "Inte inlagd.";
+  $("hk").textContent = t;
+  const b = $("hkgo");
+  b.style.display = h.error ? "none" : "";
+  b.textContent = h.installed ? "Ta bort" : "Lägg in";
+  b.style.background = h.installed ? "var(--surface)" : "";
+  b.style.color = h.installed ? "var(--text)" : "";
+}
+$("hkgo").onclick = async () => {
+  const m = $("hkmsg"); m.className = ""; m.textContent = "";
+  $("hkgo").disabled = true;
+  try {
+    const r = await fetch("/api/hooks", {method: "POST", headers: {"Content-Type": "application/json"},
+                                         body: JSON.stringify({action: hk && hk.installed ? "remove" : "install"})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Misslyckades");
+    renderHooks(d.hooks);
+    m.className = "ok"; m.textContent = d.hooks.installed ? "Klart. Gäller Claude Code-sessioner som startar nu." : "Borttagen.";
+  } catch (e) { m.className = "err"; m.textContent = e.message; }
+  $("hkgo").disabled = false;
+};
+
 async function updPost(body) {
   const r = await fetch("/api/update", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const d = await r.json();
@@ -237,6 +277,7 @@ async function loadState(first) {
   const r = await fetch("/api/state"); const d = await r.json();
   renderStatus(d.status);
   renderUpdate(d.update);
+  renderHooks(d.hooks);
   if (!first) return;
   const c = d.config;
   $("namn").value = c.namn || "";

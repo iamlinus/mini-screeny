@@ -6,6 +6,7 @@
   GET  /api/stocks?q= Avanza stock search
   POST /api/update    {"action":"check"} look for news on GitHub, otherwise git pull (tools/updater.py)
   POST /api/config    save settings -> config.toml (the companion picks the change up by itself)
+  POST /api/hooks     {"action":"install"|"remove"} the Claude Code hooks in ~/.claude/settings.json (tools/hooks.py)
   POST /api/agent     a Claude Code hook event (tools/agents.py); sent by a hook script, never by a browser
 
 Only reachable from this Mac (bound to 127.0.0.1). The Host header must be localhost (no DNS
@@ -18,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config
 import football
+import hooks
 import lager
 import updater
 import stock
@@ -73,7 +75,7 @@ def make_handler(status_fn, log, agent_fn=None):
                         self._send(200, f.read(), "text/html; charset=utf-8")
                 elif url.path == "/api/state":
                     c = config.load(log)
-                    self._send(200, {"config": c, "airtable": lager.public_settings(), "update": updater.info(), "pages": [{"id": k, "label": PAGE_LABELS[k]} for k in config.PAGES],
+                    self._send(200, {"config": c, "airtable": lager.public_settings(), "update": updater.info(), "hooks": hooks.status(), "pages": [{"id": k, "label": PAGE_LABELS[k]} for k in config.PAGES],
                                      "status": status_fn()})
                 elif url.path == "/api/teams":
                     self._send(200, {"teams": _teams_cached()})
@@ -104,7 +106,7 @@ def make_handler(status_fn, log, agent_fn=None):
                 return
             if self.path == "/api/agent":
                 return self._agent()
-            if self.path not in ("/api/config", "/api/update"):
+            if self.path not in ("/api/config", "/api/update", "/api/hooks"):
                 return self._send(404, {"error": "finns inte"})
             if self.headers.get("Origin") not in allowed_origins or \
                     not self.headers.get("Content-Type", "").startswith("application/json"):
@@ -114,6 +116,16 @@ def make_handler(status_fn, log, agent_fn=None):
                 if n > 10000:
                     return self._send(413, {"error": "för stort"})
                 d = json.loads(self.rfile.read(n) or b"{}")
+                if self.path == "/api/hooks":
+                    action = d.get("action")
+                    if action not in ("install", "remove"):
+                        return self._send(400, {"error": "okänd åtgärd"})
+                    try:
+                        st = hooks.install() if action == "install" else hooks.remove()
+                    except (OSError, ValueError) as e:
+                        return self._send(409, {"error": str(e)})
+                    log(f"Claude Code hooks: {action} from the web page")
+                    return self._send(200, {"ok": True, "hooks": st})
                 if self.path == "/api/update":
                     if d.get("action") == "check":
                         updater.check()

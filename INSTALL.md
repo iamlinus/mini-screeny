@@ -30,6 +30,11 @@ Talk to the user in Swedish if they write Swedish.
    within a minute. The screen's data pages then show data and a green dot (top right).
 7. Settings (name, football team, stock, which pages): the user picks them on http://localhost:8740,
    or edit `~/mini-screeny/config.toml`. Changes reach the screen within a minute.
+8. Claude Code status on the screen (optional): tell the user to press **Lägg in** under *Claude Code-status*
+   on http://localhost:8740. It adds a hook to their `~/.claude/settings.json`, so ask them to do it there
+   rather than editing that file yourself. It needs the screen's firmware from 2026-11-19 or later: if
+   `curl -s localhost:8740/api/state` never shows the hooks' sessions on the screen, the board needs a flash
+   with a USB cable (`tools/sim.py flash`), which is not part of this install.
 
 ## Troubleshooting
 - Log: `~/Library/Logs/mini-screeny-companion.log`.

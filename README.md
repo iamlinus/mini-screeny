@@ -28,11 +28,11 @@ Skärmen visar vad dina Claude Code-sessioner på Macen gör, på alla sidor:
 - **Klar**: gubben tar över skärmen några sekunder, jublar och säger "Klar: <mapp>", och lämnar sedan tillbaka sidan du hade. Turer under 15 sekunder slutar tyst.
 - **Väntar på dig** (behörighetsfråga eller annan fråga): gubben vinkar och säger "Väntar: <mapp>", och bär sedan ett gult "!" tills du har svarat. På datasidorna är pricken gul.
 
-Det bygger på Claude Codes hooks, som skickar sina händelser till companion-servern. Lägg in dem i `~/.claude/settings.json` för händelserna `UserPromptSubmit`, `PostToolBatch`, `Notification`, `Stop`, `StopFailure` och `SessionEnd`, alla med samma kommando:
+Det bygger på Claude Codes hooks, som skickar sina händelser till companion-servern. Enklast: **Lägg in** under *Claude Code-status* på inställningssidan (http://localhost:8740). Den skriver in hooken i `~/.claude/settings.json` och rör inga andra inställningar eller hooks (`tools/hooks.py`); *Ta bort* tar ut den igen. Den gäller Claude Code överallt på datorn (terminalen, editorn, Code-läget i Claude Desktop), i sessioner som startar efteråt. För hand: lägg in händelserna `UserPromptSubmit`, `PostToolBatch`, `Notification`, `Stop`, `StopFailure` och `SessionEnd`, alla med samma kommando:
 ```sh
 curl -s -m 2 -o /dev/null -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:8740/api/agent 2>/dev/null; exit 0
 ```
-Körs inte companion-servern händer ingenting; Claude Code påverkas inte. Tillståndet per session räknas ut i `tools/agents.py`, och `http://localhost:8740/api/state` visar under `status.agents` vad companion tror just nu. Testa på skärmen utan Claude: `tools/sim.py agents`.
+Körs inte companion-servern händer ingenting; Claude Code påverkas inte. Tillståndet per session räknas ut i `tools/agents.py`, och `http://localhost:8740/api/state` visar under `status.agents` vad companion tror just nu. Testa på skärmen utan Claude: `tools/sim.py agents`. Provat på riktiga kortet 2026-11-23: tänker, väntar, klar och misslyckad syns som de ska.
 
 ## Inställningar
 Öppna **http://localhost:8740** i webbläsaren (när companion-servern körs). Där väljer du namn, fotbollslag (rullista), aktie (sök hos Avanza) och vilka sidor som visas och i vilken ordning, och ser om skärmen är ansluten och hur färsk datan är. Sidan går bara att nå från den egna Macen.
